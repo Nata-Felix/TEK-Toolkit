@@ -68,13 +68,17 @@ function InstalarExe {
     return $false
 }
 
+function ObterProcessosTek {
+    @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "Tek*" })
+}
+
 function FinalizarProcessosTek {
     LogMsg "====================================="
     LogMsg "Finalizando processos iniciados com Tek..."
 
-    $ProcessosTek = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "Tek*" }
+    $ProcessosTek = @(ObterProcessosTek)
 
-    if (!$ProcessosTek) {
+    if ($ProcessosTek.Count -eq 0) {
         LogMsg "Nenhum processo Tek encontrado."
         return
     }
@@ -89,7 +93,40 @@ function FinalizarProcessosTek {
         }
     }
 
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 1
+
+    $ProcessosRestantes = @(ObterProcessosTek)
+
+    foreach ($Proc in $ProcessosRestantes) {
+        try {
+            LogMsg "Forcando encerramento via taskkill: $($Proc.ProcessName).exe PID $($Proc.Id)"
+            Start-Process -FilePath "taskkill.exe" -ArgumentList @("/PID", $Proc.Id, "/F", "/T") -Wait -NoNewWindow | Out-Null
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel executar taskkill para $($Proc.ProcessName). Motivo: $($_.Exception.Message)"
+        }
+    }
+
+    $Limite = (Get-Date).AddSeconds(10)
+
+    do {
+        $ProcessosRestantes = @(ObterProcessosTek)
+
+        if ($ProcessosRestantes.Count -eq 0) {
+            LogMsg "Todos os processos Tek* foram finalizados."
+            return
+        }
+
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $Limite)
+
+    LogMsg "ERRO: Ainda existem processos Tek* em execucao. A extracao da versao foi cancelada."
+
+    foreach ($Proc in $ProcessosRestantes) {
+        LogMsg "Processo ainda ativo: $($Proc.ProcessName).exe PID $($Proc.Id)"
+    }
+
+    exit 1
 }
 
 function AtualizarVersaoTekFarma {
@@ -106,8 +143,6 @@ function AtualizarVersaoTekFarma {
         LogMsg "Pasta destino nao existe. Criando: $DestinoSistema"
         New-Item -ItemType Directory -Path $DestinoSistema -Force | Out-Null
     }
-
-    FinalizarProcessosTek
 
     if ($TipoVersao -eq "normal") {
         $Pacote = Join-Path $Base "TekFarma50.exe"
@@ -128,6 +163,9 @@ function AtualizarVersaoTekFarma {
     Unblock-File $Pacote -ErrorAction SilentlyContinue
 
     LogMsg "Pacote encontrado: $Pacote"
+    LogMsg "Garantindo que nao exista processo Tek* ativo antes da extracao..."
+    FinalizarProcessosTek
+
     LogMsg "Extraindo com tar..."
     LogMsg "Comando equivalente: tar -xf `"$Pacote`" -C `"$DestinoSistema`""
 
