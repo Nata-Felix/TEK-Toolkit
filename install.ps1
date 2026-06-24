@@ -8,68 +8,75 @@ $Repo = "Nata-Felix/Instalacao_crystal_adv"
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
 $RawUrl = "https://raw.githubusercontent.com/$Repo/main"
 
-$Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystal"
+$Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui"
+$GuiExe = Join-Path $Destino "TekFarmaInstaller.exe"
+$DotNetInstaller = Join-Path $Destino "dotnet48.exe"
 
-$UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe"
-$UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe"
-$UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip"
+function Test-DotNet48 {
+    $release = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" -Name Release -ErrorAction SilentlyContinue).Release
+
+    if ($null -eq $release) {
+        return $false
+    }
+
+    return ([int]$release -ge 528040)
+}
 
 function BaixarArquivo {
-param(
-[string]$Url,
-[string]$DestinoArquivo,
-[string]$Nome
-)
+    param(
+        [string]$Url,
+        [string]$DestinoArquivo,
+        [string]$Nome
+    )
 
-Write-Host ""
-Write-Host "Baixando: $Nome"
+    Write-Host ""
+    Write-Host "Baixando: $Nome"
 
-$Request = [System.Net.HttpWebRequest]::Create($Url)
-$Response = $Request.GetResponse()
-$TotalBytes = $Response.ContentLength
+    $Request = [System.Net.HttpWebRequest]::Create($Url)
+    $Response = $Request.GetResponse()
+    $TotalBytes = $Response.ContentLength
 
-$Stream = $Response.GetResponseStream()
-$FileStream = [System.IO.File]::Create($DestinoArquivo)
+    $Stream = $Response.GetResponseStream()
+    $FileStream = [System.IO.File]::Create($DestinoArquivo)
 
-$Buffer = New-Object byte[] 1048576
-$TotalLido = 0
+    $Buffer = New-Object byte[] 1048576
+    $TotalLido = 0
 
-try {
-    do {
-        $Lido = $Stream.Read($Buffer, 0, $Buffer.Length)
+    try {
+        do {
+            $Lido = $Stream.Read($Buffer, 0, $Buffer.Length)
 
-        if ($Lido -gt 0) {
-            $FileStream.Write($Buffer, 0, $Lido)
-            $TotalLido += $Lido
+            if ($Lido -gt 0) {
+                $FileStream.Write($Buffer, 0, $Lido)
+                $TotalLido += $Lido
 
-            if ($TotalBytes -gt 0) {
-                $Percentual = [math]::Round(($TotalLido / $TotalBytes) * 100, 2)
-                $MBLido = [math]::Round($TotalLido / 1MB, 2)
-                $MBTotal = [math]::Round($TotalBytes / 1MB, 2)
+                if ($TotalBytes -gt 0) {
+                    $Percentual = [math]::Round(($TotalLido / $TotalBytes) * 100, 2)
+                    $MBLido = [math]::Round($TotalLido / 1MB, 2)
+                    $MBTotal = [math]::Round($TotalBytes / 1MB, 2)
 
-                Write-Progress -Activity "Baixando dependencias" -Status "$Nome - $MBLido MB de $MBTotal MB" -PercentComplete $Percentual
+                    Write-Progress -Activity "Baixando instalador" -Status "$Nome - $MBLido MB de $MBTotal MB" -PercentComplete $Percentual
+                }
             }
+
+        } while ($Lido -gt 0)
+    }
+    finally {
+        if ($FileStream) {
+            $FileStream.Close()
         }
 
-    } while ($Lido -gt 0)
-}
-finally {
-    if ($FileStream) {
-        $FileStream.Close()
+        if ($Stream) {
+            $Stream.Close()
+        }
+
+        if ($Response) {
+            $Response.Close()
+        }
     }
 
-    if ($Stream) {
-        $Stream.Close()
-    }
-
-    if ($Response) {
-        $Response.Close()
-    }
-}
-
-Write-Progress -Activity "Baixando dependencias" -Completed
-Write-Host "Concluido: $Nome"
-
+    Write-Progress -Activity "Baixando instalador" -Completed
+    Write-Host "Concluido: $Nome"
 }
 
 Clear-Host
@@ -78,178 +85,59 @@ Write-Host "====================================="
 Write-Host " INSTALADOR TEKFARMA / CRYSTAL"
 Write-Host "====================================="
 Write-Host ""
-Write-Host "Digite sua opcao:"
-Write-Host ""
-Write-Host "1 - Instalacao somente versao"
-Write-Host "2 - Instalacao somente Crystal"
-Write-Host "3 - Instalacao FULL: versao + VS + DotNet + Crystal"
-Write-Host "4 - Instalacao SEMI-FULL: versao + Crystal"
-Write-Host "99 - Instalacao TekFarma servidor/terminal"
-Write-Host ""
-
-$Modo = Read-Host "Opcao"
-
-if ($Modo -notin @("1", "2", "3", "4", "99")) {
-Write-Host "Opcao invalida."
-exit 1
-}
-
-$TipoVersao = ""
-$PerfilTek = ""
-
-if ($Modo -eq "1" -or $Modo -eq "3" -or $Modo -eq "4" -or $Modo -eq "99") {
-Write-Host ""
-Write-Host "Escolha a versao do TekFarma:"
-Write-Host ""
-Write-Host "1 - Versao normal"
-Write-Host "2 - Versao i"
-Write-Host ""
-
-$EscolhaVersao = Read-Host "Digite sua opcao"
-
-if ($EscolhaVersao -eq "1") {
-    $TipoVersao = "normal"
-}
-elseif ($EscolhaVersao -eq "2") {
-    $TipoVersao = "i"
-}
-else {
-    Write-Host "Opcao de versao invalida."
-    exit 1
-}
-
-}
-
-if ($Modo -eq "99") {
-Write-Host ""
-Write-Host "Escolha o tipo de instalacao TekFarma:"
-Write-Host ""
-Write-Host "1 - Servidor"
-Write-Host "2 - Terminal"
-Write-Host ""
-
-$EscolhaPerfilTek = Read-Host "Digite sua opcao"
-
-if ($EscolhaPerfilTek -eq "1") {
-    $PerfilTek = "servidor"
-}
-elseif ($EscolhaPerfilTek -eq "2") {
-    $PerfilTek = "terminal"
-}
-else {
-    Write-Host "Opcao de instalacao TekFarma invalida."
-    exit 1
-}
-
-}
-
-Write-Host ""
-Write-Host "Preparando pasta temporaria..."
+Write-Host "Preparando interface grafica..."
 
 if (Test-Path $Destino) {
-Remove-Item -LiteralPath $Destino -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Destino -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 New-Item -ItemType Directory -Path $Destino -Force | Out-Null
 
-$ArquivosRelease = @()
+if (!(Test-DotNet48)) {
+    Write-Host ""
+    Write-Host ".NET Framework 4.8 nao encontrado. Instalando dependencia..."
+    BaixarArquivo -Url "$BaseUrl/dotnet48.exe" -DestinoArquivo $DotNetInstaller -Nome "dotnet48.exe"
 
-if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
-$ArquivosRelease += "CRRuntime_32bit_13_0_39.msi"
-$ArquivosRelease += "crdb_adoplus.zip"
-}
-
-if ($Modo -eq "3") {
-$ArquivosRelease += "dotnet48.exe"
-$ArquivosRelease += "VC_redist.x86.exe"
-$ArquivosRelease += "VC_redist.x64.exe"
-}
-
-if ($Modo -eq "99") {
-$ArquivosRelease += "CRRuntime_32bit_13_0_39.msi"
-$ArquivosRelease += "crdb_adoplus.zip"
-$ArquivosRelease += "dotnet48.exe"
-$ArquivosRelease += "VC_redist.x86.exe"
-$ArquivosRelease += "VC_redist.x64.exe"
-
-if ($PerfilTek -eq "servidor") {
-    $ArquivosRelease += "Firebird-2.5.9.exe"
-    $ArquivosRelease += "TekFarmaPasta.zip"
-    $ArquivosRelease += "pastastekfarma.zip"
-    $ArquivosRelease += "DLLS.zip"
-}
-
-}
-
-foreach ($Arquivo in $ArquivosRelease) {
-$UrlArquivo = "$BaseUrl/$Arquivo"
-$DestinoArquivo = Join-Path $Destino $Arquivo
-
-BaixarArquivo -Url $UrlArquivo -DestinoArquivo $DestinoArquivo -Nome $Arquivo
-
-}
-
-if ($TipoVersao -eq "normal" -and $Modo -ne "99") {
-BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50.exe" -Nome "TekFarma50.exe"
-}
-
-if ($TipoVersao -eq "i" -and $Modo -ne "99") {
-BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
-}
-
-if ($Modo -eq "99" -and $PerfilTek -eq "servidor") {
-    if ($TipoVersao -eq "normal") {
-        BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50.exe" -Nome "TekFarma50.exe"
+    try {
+        $DotNetProcesso = Start-Process -FilePath $DotNetInstaller -Verb RunAs -ArgumentList "/q /norestart" -Wait -PassThru -ErrorAction Stop
+        Write-Host ".NET Framework 4.8 finalizado. ExitCode: $($DotNetProcesso.ExitCode)"
+    }
+    catch {
+        Write-Host "ERRO: Nao foi possivel iniciar o instalador do .NET Framework 4.8."
+        Write-Host $_.Exception.Message
+        Start-Sleep -Seconds 5
+        [Environment]::Exit(1)
     }
 
-    if ($TipoVersao -eq "i") {
-        BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
+    if (!(Test-DotNet48)) {
+        Write-Host ""
+        Write-Host "AVISO: .NET Framework 4.8 ainda nao foi detectado. Pode ser necessario reiniciar e executar novamente."
+        Start-Sleep -Seconds 8
+        [Environment]::Exit(1)
     }
-
-    BaixarArquivo -Url $UrlBancoTekFarma -DestinoArquivo "$Destino\TEKFARMA(NOV-2020).zip" -Nome "TEKFARMA(NOV-2020).zip"
 }
 
-if ($Modo -eq "99") {
-    BaixarArquivo -Url "$RawUrl/instalar_tekfarma.ps1" -DestinoArquivo "$Destino\instalar_tekfarma.ps1" -Nome "instalar_tekfarma.ps1"
-}
-else {
-    BaixarArquivo -Url "$RawUrl/instalar.ps1" -DestinoArquivo "$Destino\instalar.ps1" -Nome "instalar.ps1"
-}
+BaixarArquivo -Url "$RawUrl/TekFarmaInstaller.exe" -DestinoArquivo $GuiExe -Nome "TekFarmaInstaller.exe"
 
 Write-Host ""
-Write-Host "Downloads concluidos."
-Write-Host "Iniciando instalador como Administrador..."
-
-if ($Modo -eq "99") {
-    $InstaladorLocal = "$Destino\instalar_tekfarma.ps1"
-    $Argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$InstaladorLocal`" -TipoVersao `"$TipoVersao`" -PerfilTek `"$PerfilTek`""
-}
-else {
-    $InstaladorLocal = "$Destino\instalar.ps1"
-    $Argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$InstaladorLocal`" -Modo $Modo -TipoVersao `"$TipoVersao`""
-}
+Write-Host "Abrindo interface grafica..."
 
 try {
-    $ProcessoElevado = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $Argumentos -Wait -PassThru -ErrorAction Stop
+    $GuiProcesso = Start-Process -FilePath $GuiExe -Wait -PassThru -ErrorAction Stop
     $CodigoSaida = 0
 
-    if ($null -ne $ProcessoElevado.ExitCode) {
-        $CodigoSaida = $ProcessoElevado.ExitCode
+    if ($null -ne $GuiProcesso.ExitCode) {
+        $CodigoSaida = $GuiProcesso.ExitCode
     }
 
-    if ($CodigoSaida -eq 0) {
-        Write-Host "Instalador finalizado com sucesso. Fechando esta janela..."
-    }
-    else {
-        Write-Host "Instalador finalizado com erro. Codigo de saida: $CodigoSaida"
-    }
-
-    Start-Sleep -Seconds 2
     [Environment]::Exit($CodigoSaida)
 }
 catch {
-    Write-Host "ERRO: Nao foi possivel iniciar o instalador como Administrador."
+    Write-Host "ERRO: Nao foi possivel abrir a interface grafica."
     Write-Host $_.Exception.Message
-    Start-Sleep -Seconds 5
+    Write-Host ""
+    Write-Host "Fallback em modo texto:"
+    Write-Host "irm https://raw.githubusercontent.com/$Repo/main/install_console.ps1 | iex"
+    Start-Sleep -Seconds 8
     [Environment]::Exit(1)
 }
