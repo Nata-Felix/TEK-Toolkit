@@ -668,13 +668,9 @@ namespace TekFarmaInstaller
 
         private void ExecutePlan(WorkPlan plan, BackgroundWorker bg)
         {
-            tempDir = Path.Combine(Path.GetTempPath(), "InstalacaoCrystal");
-
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, true);
-            }
-
+            tempDir = Path.Combine(
+                Path.GetTempPath(),
+                "InstalacaoCrystal_" + Process.GetCurrentProcess().Id + "_" + DateTime.Now.ToString("yyyyMMddHHmmss"));
             Directory.CreateDirectory(tempDir);
 
             int totalUnits = Math.Max(1, plan.Downloads.Count + 1);

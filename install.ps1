@@ -8,7 +8,8 @@ $Repo = "Nata-Felix/Instalacao_crystal_adv"
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
 $RawUrl = "https://raw.githubusercontent.com/$Repo/main"
 
-$Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui"
+$RunId = "{0}_{1}" -f (Get-Date -Format "yyyyMMddHHmmss"), $PID
+$Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui_$RunId"
 $GuiExe = Join-Path $Destino "TekFarmaInstaller.exe"
 $DotNetInstaller = Join-Path $Destino "dotnet48.exe"
 
@@ -121,10 +122,6 @@ Write-Host "====================================="
 Write-Host ""
 Write-Host "Preparando interface grafica..."
 
-if (Test-Path $Destino) {
-    Remove-Item -LiteralPath $Destino -Recurse -Force -ErrorAction SilentlyContinue
-}
-
 New-Item -ItemType Directory -Path $Destino -Force | Out-Null
 
 if (!(Test-DotNet48)) {
@@ -166,6 +163,7 @@ try {
         $CodigoSaida = $GuiProcesso.ExitCode
     }
 
+    Remove-Item -LiteralPath $Destino -Recurse -Force -ErrorAction SilentlyContinue
     [Environment]::Exit($CodigoSaida)
 }
 catch {
