@@ -52,7 +52,7 @@ namespace TekFarmaInstaller
         private readonly Button installButton = new Button();
         private readonly Button cancelButton = new Button();
         private readonly Button closeButton = new Button();
-        private readonly CheckBox keepOpenWhenDoneCheckBox = new CheckBox();
+        private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
         private readonly PictureBox logoBox = new PictureBox();
 
@@ -363,15 +363,15 @@ namespace TekFarmaInstaller
             info.ForeColor = blue;
             root.Controls.Add(info);
 
-            keepOpenWhenDoneCheckBox.Text = "Manter aberto ao finalizar";
-            keepOpenWhenDoneCheckBox.Left = 384;
-            keepOpenWhenDoneCheckBox.Top = 584;
-            keepOpenWhenDoneCheckBox.Width = 205;
-            keepOpenWhenDoneCheckBox.Height = 24;
-            keepOpenWhenDoneCheckBox.Checked = true;
-            keepOpenWhenDoneCheckBox.ForeColor = Color.FromArgb(38, 48, 64);
-            keepOpenWhenDoneCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
-            root.Controls.Add(keepOpenWhenDoneCheckBox);
+            closeWhenDoneCheckBox.Text = "Fechar automaticamente ao finalizar";
+            closeWhenDoneCheckBox.Left = 364;
+            closeWhenDoneCheckBox.Top = 584;
+            closeWhenDoneCheckBox.Width = 225;
+            closeWhenDoneCheckBox.Height = 24;
+            closeWhenDoneCheckBox.Checked = false;
+            closeWhenDoneCheckBox.ForeColor = Color.FromArgb(38, 48, 64);
+            closeWhenDoneCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            root.Controls.Add(closeWhenDoneCheckBox);
 
             installButton.Text = "Instalar";
             installButton.Left = 604;
@@ -522,7 +522,7 @@ namespace TekFarmaInstaller
                 statusLabel.Text = "Processo concluido";
                 AppendLog("[OK] Processo finalizado.");
 
-                if (!keepOpenWhenDoneCheckBox.Checked)
+                if (closeWhenDoneCheckBox.Checked)
                 {
                     BeginInvoke(new Action(Close));
                 }
@@ -828,7 +828,7 @@ namespace TekFarmaInstaller
                 optionRows[i].Enabled = enabled;
             }
 
-            keepOpenWhenDoneCheckBox.Enabled = enabled;
+            closeWhenDoneCheckBox.Enabled = enabled;
 
             if (!enabled)
             {
