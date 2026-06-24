@@ -969,7 +969,7 @@ function GarantirCredencialServidorTerminal {
     try {
         LogMsg "Configurando credencial do Windows para ${HostCredencial} com usuario ${UsuarioCredencial}."
         & cmdkey.exe /delete:$HostCredencial 2>&1 | Out-Null
-        & cmdkey.exe /add:$HostCredencial /user:$UsuarioCredencial /pass: 2>&1 | Out-Null
+        & cmd.exe /c "echo.|cmdkey.exe /add:$HostCredencial /user:$UsuarioCredencial" 2>&1 | Out-Null
         LogMsg "Credencial do Windows configurada: host=$HostCredencial usuario=$UsuarioCredencial senha=vazia"
     }
     catch {
