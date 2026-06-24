@@ -13,6 +13,32 @@ $Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui_$Ru
 $GuiExe = Join-Path $Destino "TekFarmaInstaller.exe"
 $DotNetInstaller = Join-Path $Destino "dotnet48.exe"
 
+function LimparHistoricoPowerShell {
+    try {
+        Clear-History -ErrorAction SilentlyContinue
+    }
+    catch {
+    }
+
+    try {
+        if ("Microsoft.PowerShell.PSConsoleReadLine" -as [type]) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+        }
+    }
+    catch {
+    }
+
+    try {
+        $HistoryPath = (Get-PSReadLineOption -ErrorAction SilentlyContinue).HistorySavePath
+
+        if (![string]::IsNullOrWhiteSpace($HistoryPath)) {
+            Remove-Item -LiteralPath $HistoryPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+    }
+}
+
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -113,6 +139,7 @@ function BaixarArquivo {
 }
 
 Set-ConsoleVisible -Visible $false
+LimparHistoricoPowerShell
 
 Clear-Host
 
@@ -138,6 +165,7 @@ if (!(Test-DotNet48)) {
         Write-Host "ERRO: Nao foi possivel iniciar o instalador do .NET Framework 4.8."
         Write-Host $_.Exception.Message
         Start-Sleep -Seconds 5
+        LimparHistoricoPowerShell
         [Environment]::Exit(1)
     }
 
@@ -146,6 +174,7 @@ if (!(Test-DotNet48)) {
         Write-Host ""
         Write-Host "AVISO: .NET Framework 4.8 ainda nao foi detectado. Pode ser necessario reiniciar e executar novamente."
         Start-Sleep -Seconds 8
+        LimparHistoricoPowerShell
         [Environment]::Exit(1)
     }
 }
@@ -164,6 +193,7 @@ try {
     }
 
     Remove-Item -LiteralPath $Destino -Recurse -Force -ErrorAction SilentlyContinue
+    LimparHistoricoPowerShell
     [Environment]::Exit($CodigoSaida)
 }
 catch {
@@ -174,5 +204,6 @@ catch {
     Write-Host "Fallback em modo texto:"
     Write-Host "irm https://raw.githubusercontent.com/$Repo/main/install_console.ps1 | iex"
     Start-Sleep -Seconds 8
+    LimparHistoricoPowerShell
     [Environment]::Exit(1)
 }

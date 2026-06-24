@@ -962,6 +962,21 @@ function MapearServidorTerminal {
     }
 }
 
+function GarantirCredencialServidorTerminal {
+    $HostCredencial = "SERVIDOR"
+    $UsuarioCredencial = "convidado"
+
+    try {
+        LogMsg "Configurando credencial do Windows para ${HostCredencial} com usuario ${UsuarioCredencial}."
+        & cmdkey.exe /delete:$HostCredencial 2>&1 | Out-Null
+        & cmdkey.exe /add:$HostCredencial /user:$UsuarioCredencial /pass: 2>&1 | Out-Null
+        LogMsg "Credencial do Windows configurada: host=$HostCredencial usuario=$UsuarioCredencial senha=vazia"
+    }
+    catch {
+        LogMsg "AVISO: Nao foi possivel configurar credencial do Windows para ${HostCredencial}: $($_.Exception.Message)"
+    }
+}
+
 function CriarAtalhoTekFarma {
     $Alvo = Join-Path $DestinoSistema "TekAplicacao.exe"
     $Desktop = [Environment]::GetFolderPath("Desktop")
@@ -1091,6 +1106,10 @@ function FluxoTerminal {
 
     ExecutarPasso "Configurar rede avancada" {
         ConfigurarRedeAvancada
+    }
+
+    ExecutarPasso "Configurar credencial do Windows para SERVIDOR" {
+        GarantirCredencialServidorTerminal
     }
 
     ExecutarPasso "Mapear servidor TekSoftware" {

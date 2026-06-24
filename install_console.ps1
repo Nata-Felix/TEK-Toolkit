@@ -14,6 +14,32 @@ $UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe"
 $UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe"
 $UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip"
 
+function LimparHistoricoPowerShell {
+    try {
+        Clear-History -ErrorAction SilentlyContinue
+    }
+    catch {
+    }
+
+    try {
+        if ("Microsoft.PowerShell.PSConsoleReadLine" -as [type]) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+        }
+    }
+    catch {
+    }
+
+    try {
+        $HistoryPath = (Get-PSReadLineOption -ErrorAction SilentlyContinue).HistorySavePath
+
+        if (![string]::IsNullOrWhiteSpace($HistoryPath)) {
+            Remove-Item -LiteralPath $HistoryPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+    }
+}
+
 function BaixarArquivo {
 param(
 [string]$Url,
@@ -71,6 +97,8 @@ Write-Progress -Activity "Baixando dependencias" -Completed
 Write-Host "Concluido: $Nome"
 
 }
+
+LimparHistoricoPowerShell
 
 Clear-Host
 
