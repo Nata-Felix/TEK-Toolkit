@@ -8,7 +8,7 @@ $Repo = "Nata-Felix/Instalacao_crystal_adv"
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
 $RawUrl = "https://raw.githubusercontent.com/$Repo/main"
 
-$Destino = "C:\Windows\Temp\InstalacaoCrystal"
+$Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystal"
 
 $UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe"
 $UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe"
