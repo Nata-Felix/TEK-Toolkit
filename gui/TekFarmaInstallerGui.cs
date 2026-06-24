@@ -64,8 +64,8 @@ namespace TekFarmaInstaller
         {
             Text = "Instalador TekFarma / Crystal";
             Width = 1024;
-            Height = 680;
-            MinimumSize = new Size(1024, 680);
+            Height = 660;
+            MinimumSize = new Size(1024, 660);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.White;
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
@@ -99,9 +99,9 @@ namespace TekFarmaInstaller
         {
             Panel header = new Panel();
             header.Left = 24;
-            header.Top = 18;
+            header.Top = 10;
             header.Width = 958;
-            header.Height = 142;
+            header.Height = 130;
             header.BackColor = Color.White;
             root.Controls.Add(header);
 
@@ -113,23 +113,23 @@ namespace TekFarmaInstaller
             }
 
             logoBox.Left = 20;
-            logoBox.Top = 16;
+            logoBox.Top = 10;
             logoBox.Width = 295;
-            logoBox.Height = 105;
+            logoBox.Height = 100;
             header.Controls.Add(logoBox);
 
             Panel divider = new Panel();
             divider.Left = 345;
-            divider.Top = 26;
+            divider.Top = 20;
             divider.Width = 1;
-            divider.Height = 92;
+            divider.Height = 84;
             divider.BackColor = border;
             header.Controls.Add(divider);
 
             Label title = new Label();
             title.Text = "Instalador TekFarma / Crystal";
             title.Left = 380;
-            title.Top = 34;
+            title.Top = 26;
             title.Width = 520;
             title.Height = 42;
             title.Font = new Font("Segoe UI", 23F, FontStyle.Bold, GraphicsUnit.Point);
@@ -139,7 +139,7 @@ namespace TekFarmaInstaller
             Label subtitle = new Label();
             subtitle.Text = "Assistente de instalacao e configuracao";
             subtitle.Left = 384;
-            subtitle.Top = 80;
+            subtitle.Top = 72;
             subtitle.Width = 520;
             subtitle.Height = 28;
             subtitle.Font = new Font("Segoe UI", 14F, FontStyle.Regular, GraphicsUnit.Point);
@@ -148,7 +148,7 @@ namespace TekFarmaInstaller
 
             Panel horizontal = new Panel();
             horizontal.Left = 0;
-            horizontal.Top = 138;
+            horizontal.Top = 122;
             horizontal.Width = 958;
             horizontal.Height = 1;
             horizontal.BackColor = border;
@@ -160,7 +160,7 @@ namespace TekFarmaInstaller
             Label selectLabel = new Label();
             selectLabel.Text = "Selecione o modo de instalacao";
             selectLabel.Left = 44;
-            selectLabel.Top = 184;
+            selectLabel.Top = 158;
             selectLabel.Width = 360;
             selectLabel.Height = 24;
             selectLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
@@ -169,9 +169,9 @@ namespace TekFarmaInstaller
 
             Panel optionsPanel = new Panel();
             optionsPanel.Left = 42;
-            optionsPanel.Top = 214;
+            optionsPanel.Top = 186;
             optionsPanel.Width = 336;
-            optionsPanel.Height = 332;
+            optionsPanel.Height = 318;
             optionsPanel.BackColor = Color.White;
             optionsPanel.Paint += delegate(object sender, PaintEventArgs e)
             {
@@ -182,11 +182,11 @@ namespace TekFarmaInstaller
             };
             root.Controls.Add(optionsPanel);
 
-            AddOption(optionsPanel, InstallMode.Versao, 10, "Instalacao somente versao", "", "box");
-            AddOption(optionsPanel, InstallMode.Crystal, 75, "Instalacao somente Crystal", "", "diamond");
-            AddOption(optionsPanel, InstallMode.Full, 140, "Instalacao FULL: versao + VS +", "DotNet + Crystal", "stack");
-            AddOption(optionsPanel, InstallMode.SemiFull, 205, "Instalacao SEMI-FULL:", "versao + Crystal", "cube");
-            AddOption(optionsPanel, InstallMode.TekFarma, 270, "Instalacao TekFarma", "servidor / terminal", "network");
+            AddOption(optionsPanel, InstallMode.Versao, 8, "Instalacao somente versao", "", "box");
+            AddOption(optionsPanel, InstallMode.Crystal, 70, "Instalacao somente Crystal", "", "diamond");
+            AddOption(optionsPanel, InstallMode.Full, 132, "Instalacao FULL: versao + VS +", "DotNet + Crystal", "stack");
+            AddOption(optionsPanel, InstallMode.SemiFull, 194, "Instalacao SEMI-FULL:", "versao + Crystal", "cube");
+            AddOption(optionsPanel, InstallMode.TekFarma, 256, "Instalacao TekFarma", "servidor / terminal", "network");
 
             BuildChoicePanel(root);
             BuildProgressPanel(root);
@@ -198,7 +198,7 @@ namespace TekFarmaInstaller
             row.Left = 8;
             row.Top = top;
             row.Width = 320;
-            row.Height = 56;
+            row.Height = 54;
             row.SelectedChanged += delegate { SelectMode(row.Mode); };
             parent.Controls.Add(row);
             optionRows.Add(row);
@@ -208,7 +208,7 @@ namespace TekFarmaInstaller
         {
             Panel choicePanel = new Panel();
             choicePanel.Left = 42;
-            choicePanel.Top = 558;
+            choicePanel.Top = 510;
             choicePanel.Width = 336;
             choicePanel.Height = 54;
             choicePanel.BackColor = Color.White;
@@ -251,7 +251,7 @@ namespace TekFarmaInstaller
             Label progressTitle = new Label();
             progressTitle.Text = "Progresso da execucao";
             progressTitle.Left = 420;
-            progressTitle.Top = 184;
+            progressTitle.Top = 158;
             progressTitle.Width = 360;
             progressTitle.Height = 24;
             progressTitle.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
@@ -259,7 +259,7 @@ namespace TekFarmaInstaller
             root.Controls.Add(progressTitle);
 
             progressBar.Left = 420;
-            progressBar.Top = 224;
+            progressBar.Top = 196;
             progressBar.Width = 480;
             progressBar.Height = 28;
             progressBar.Minimum = 0;
@@ -268,7 +268,7 @@ namespace TekFarmaInstaller
 
             progressLabel.Text = "0% concluido";
             progressLabel.Left = 920;
-            progressLabel.Top = 227;
+            progressLabel.Top = 199;
             progressLabel.Width = 90;
             progressLabel.Height = 24;
             progressLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
@@ -277,7 +277,7 @@ namespace TekFarmaInstaller
 
             GearPanel gear = new GearPanel();
             gear.Left = 420;
-            gear.Top = 270;
+            gear.Top = 240;
             gear.Width = 34;
             gear.Height = 34;
             gear.ForeColor = Color.FromArgb(24, 118, 224);
@@ -285,7 +285,7 @@ namespace TekFarmaInstaller
 
             currentStepLabel.Text = "Aguardando inicio da instalacao";
             currentStepLabel.Left = 462;
-            currentStepLabel.Top = 274;
+            currentStepLabel.Top = 244;
             currentStepLabel.Width = 510;
             currentStepLabel.Height = 28;
             currentStepLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
@@ -295,7 +295,7 @@ namespace TekFarmaInstaller
             Label logTitle = new Label();
             logTitle.Text = "Log de execucao (PowerShell)";
             logTitle.Left = 420;
-            logTitle.Top = 326;
+            logTitle.Top = 294;
             logTitle.Width = 360;
             logTitle.Height = 24;
             logTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
@@ -303,9 +303,9 @@ namespace TekFarmaInstaller
             root.Controls.Add(logTitle);
 
             logBox.Left = 420;
-            logBox.Top = 354;
+            logBox.Top = 322;
             logBox.Width = 560;
-            logBox.Height = 190;
+            logBox.Height = 182;
             logBox.Multiline = true;
             logBox.ReadOnly = true;
             logBox.ScrollBars = ScrollBars.Vertical;
@@ -320,7 +320,7 @@ namespace TekFarmaInstaller
         {
             Panel line = new Panel();
             line.Left = 0;
-            line.Top = 592;
+            line.Top = 564;
             line.Width = 1024;
             line.Height = 1;
             line.BackColor = border;
@@ -328,7 +328,7 @@ namespace TekFarmaInstaller
 
             statusLabel.Text = "Pronto para iniciar";
             statusLabel.Left = 62;
-            statusLabel.Top = 625;
+            statusLabel.Top = 590;
             statusLabel.Width = 520;
             statusLabel.Height = 24;
             statusLabel.ForeColor = Color.FromArgb(38, 48, 64);
@@ -337,7 +337,7 @@ namespace TekFarmaInstaller
 
             InfoCircle info = new InfoCircle();
             info.Left = 40;
-            info.Top = 623;
+            info.Top = 588;
             info.Width = 18;
             info.Height = 18;
             info.ForeColor = blue;
@@ -345,9 +345,9 @@ namespace TekFarmaInstaller
 
             installButton.Text = "Instalar";
             installButton.Left = 604;
-            installButton.Top = 612;
+            installButton.Top = 572;
             installButton.Width = 150;
-            installButton.Height = 42;
+            installButton.Height = 40;
             installButton.FlatStyle = FlatStyle.Flat;
             installButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
             installButton.BackColor = Color.FromArgb(0, 104, 210);
@@ -358,9 +358,9 @@ namespace TekFarmaInstaller
 
             cancelButton.Text = "Cancelar";
             cancelButton.Left = 772;
-            cancelButton.Top = 612;
+            cancelButton.Top = 572;
             cancelButton.Width = 124;
-            cancelButton.Height = 42;
+            cancelButton.Height = 40;
             cancelButton.FlatStyle = FlatStyle.Flat;
             cancelButton.FlatAppearance.BorderColor = border;
             cancelButton.BackColor = Color.White;
@@ -370,9 +370,9 @@ namespace TekFarmaInstaller
 
             closeButton.Text = "Fechar";
             closeButton.Left = 912;
-            closeButton.Top = 612;
+            closeButton.Top = 572;
             closeButton.Width = 88;
-            closeButton.Height = 42;
+            closeButton.Height = 40;
             closeButton.FlatStyle = FlatStyle.Flat;
             closeButton.FlatAppearance.BorderColor = border;
             closeButton.BackColor = Color.FromArgb(244, 246, 249);
