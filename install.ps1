@@ -3,10 +3,10 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Version = "v1.0"
-$Repo = "Nata-Felix/Instalacao_crystal"
+$Repo = "Nata-Felix/Instalacao_crystal_adv"
 
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
-$RawUrl = "https://raw.githubusercontent.com/$Repo/master"
+$RawUrl = "https://raw.githubusercontent.com/$Repo/main"
 
 $Destino = "C:\Windows\Temp\InstalacaoCrystal"
 
