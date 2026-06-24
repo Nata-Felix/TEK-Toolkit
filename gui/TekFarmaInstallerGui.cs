@@ -52,7 +52,7 @@ namespace TekFarmaInstaller
         private readonly Button installButton = new Button();
         private readonly Button cancelButton = new Button();
         private readonly Button closeButton = new Button();
-        private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
+        private readonly CheckBox keepOpenWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
         private readonly PictureBox logoBox = new PictureBox();
 
@@ -72,6 +72,7 @@ namespace TekFarmaInstaller
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
+            FormClosing += InstallerForm_FormClosing;
 
             Icon icon = LoadEmbeddedIcon("TekFarmaIcon");
             if (icon != null)
@@ -215,6 +216,22 @@ namespace TekFarmaInstaller
             choicePanel.BackColor = Color.White;
             root.Controls.Add(choicePanel);
 
+            Panel versionPanel = new Panel();
+            versionPanel.Left = 0;
+            versionPanel.Top = 0;
+            versionPanel.Width = 150;
+            versionPanel.Height = 54;
+            versionPanel.BackColor = Color.White;
+            choicePanel.Controls.Add(versionPanel);
+
+            Panel profilePanel = new Panel();
+            profilePanel.Left = 165;
+            profilePanel.Top = 0;
+            profilePanel.Width = 150;
+            profilePanel.Height = 54;
+            profilePanel.BackColor = Color.White;
+            choicePanel.Controls.Add(profilePanel);
+
             normalRadio.Text = "Versao normal";
             normalRadio.Left = 4;
             normalRadio.Top = 4;
@@ -222,29 +239,31 @@ namespace TekFarmaInstaller
             normalRadio.Height = 22;
             normalRadio.Checked = true;
             normalRadio.CheckedChanged += delegate { UpdateProfileControls(); };
-            choicePanel.Controls.Add(normalRadio);
+            versionPanel.Controls.Add(normalRadio);
 
             iRadio.Text = "Versao i";
             iRadio.Left = 4;
             iRadio.Top = 28;
             iRadio.Width = 128;
             iRadio.Height = 22;
-            choicePanel.Controls.Add(iRadio);
+            versionPanel.Controls.Add(iRadio);
 
             servidorRadio.Text = "Servidor";
-            servidorRadio.Left = 165;
+            servidorRadio.Left = 0;
             servidorRadio.Top = 4;
             servidorRadio.Width = 118;
             servidorRadio.Height = 22;
             servidorRadio.Checked = true;
-            choicePanel.Controls.Add(servidorRadio);
+            servidorRadio.CheckedChanged += delegate { UpdateProfileControls(); };
+            profilePanel.Controls.Add(servidorRadio);
 
             terminalRadio.Text = "Terminal";
-            terminalRadio.Left = 165;
+            terminalRadio.Left = 0;
             terminalRadio.Top = 28;
             terminalRadio.Width = 118;
             terminalRadio.Height = 22;
-            choicePanel.Controls.Add(terminalRadio);
+            terminalRadio.CheckedChanged += delegate { UpdateProfileControls(); };
+            profilePanel.Controls.Add(terminalRadio);
         }
 
         private void BuildProgressPanel(Control root)
@@ -330,7 +349,7 @@ namespace TekFarmaInstaller
             statusLabel.Text = "Pronto para iniciar";
             statusLabel.Left = 62;
             statusLabel.Top = 590;
-            statusLabel.Width = 520;
+            statusLabel.Width = 300;
             statusLabel.Height = 24;
             statusLabel.ForeColor = Color.FromArgb(38, 48, 64);
             statusLabel.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
@@ -344,15 +363,15 @@ namespace TekFarmaInstaller
             info.ForeColor = blue;
             root.Controls.Add(info);
 
-            closeWhenDoneCheckBox.Text = "Fechar ao concluir";
-            closeWhenDoneCheckBox.Left = 420;
-            closeWhenDoneCheckBox.Top = 584;
-            closeWhenDoneCheckBox.Width = 165;
-            closeWhenDoneCheckBox.Height = 24;
-            closeWhenDoneCheckBox.Checked = false;
-            closeWhenDoneCheckBox.ForeColor = Color.FromArgb(38, 48, 64);
-            closeWhenDoneCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
-            root.Controls.Add(closeWhenDoneCheckBox);
+            keepOpenWhenDoneCheckBox.Text = "Manter aberto ao finalizar";
+            keepOpenWhenDoneCheckBox.Left = 384;
+            keepOpenWhenDoneCheckBox.Top = 584;
+            keepOpenWhenDoneCheckBox.Width = 205;
+            keepOpenWhenDoneCheckBox.Height = 24;
+            keepOpenWhenDoneCheckBox.Checked = true;
+            keepOpenWhenDoneCheckBox.ForeColor = Color.FromArgb(38, 48, 64);
+            keepOpenWhenDoneCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            root.Controls.Add(keepOpenWhenDoneCheckBox);
 
             installButton.Text = "Instalar";
             installButton.Left = 604;
@@ -421,13 +440,22 @@ namespace TekFarmaInstaller
         private void UpdateProfileControls()
         {
             InstallMode mode = SelectedMode;
-            bool needsVersion = mode == InstallMode.Versao || mode == InstallMode.Full || mode == InstallMode.SemiFull || mode == InstallMode.TekFarma;
+            bool needsVersion = mode == InstallMode.Versao ||
+                mode == InstallMode.Full ||
+                mode == InstallMode.SemiFull ||
+                (mode == InstallMode.TekFarma && servidorRadio.Checked);
             bool needsProfile = mode == InstallMode.TekFarma;
 
             normalRadio.Enabled = needsVersion;
             iRadio.Enabled = needsVersion;
             servidorRadio.Enabled = needsProfile;
             terminalRadio.Enabled = needsProfile;
+        }
+
+        private void InstallerForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            cancelRequested = true;
+            KillRunningProcessTree();
         }
 
         private void StartInstall()
@@ -494,7 +522,7 @@ namespace TekFarmaInstaller
                 statusLabel.Text = "Processo concluido";
                 AppendLog("[OK] Processo finalizado.");
 
-                if (closeWhenDoneCheckBox.Checked)
+                if (!keepOpenWhenDoneCheckBox.Checked)
                 {
                     BeginInvoke(new Action(Close));
                 }
@@ -507,23 +535,50 @@ namespace TekFarmaInstaller
             cancelRequested = true;
             statusLabel.Text = "Cancelando...";
             AppendLog("[AVISO] Cancelamento solicitado.");
+            KillRunningProcessTree();
+        }
 
+        private void KillRunningProcessTree()
+        {
             Process process = runningProcess;
-            if (process != null && !process.HasExited)
+            if (process == null)
             {
-                try
+                return;
+            }
+
+            int processId;
+
+            try
+            {
+                if (process.HasExited)
                 {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "taskkill.exe",
-                        Arguments = "/PID " + process.Id + " /F /T",
-                        CreateNoWindow = true,
-                        UseShellExecute = false
-                    });
+                    return;
                 }
-                catch
+
+                processId = process.Id;
+            }
+            catch
+            {
+                return;
+            }
+
+            try
+            {
+                Process killer = Process.Start(new ProcessStartInfo
                 {
+                    FileName = "taskkill.exe",
+                    Arguments = "/PID " + processId + " /F /T",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                });
+
+                if (killer != null)
+                {
+                    killer.WaitForExit(5000);
                 }
+            }
+            catch
+            {
             }
         }
 
@@ -532,6 +587,11 @@ namespace TekFarmaInstaller
             InstallMode mode = SelectedMode;
             string tipoVersao = normalRadio.Checked ? "normal" : "i";
             string perfilTek = servidorRadio.Checked ? "servidor" : "terminal";
+
+            if (mode == InstallMode.TekFarma && perfilTek == "terminal")
+            {
+                tipoVersao = "normal";
+            }
 
             WorkPlan plan = new WorkPlan();
             plan.Mode = mode;
@@ -692,13 +752,7 @@ namespace TekFarmaInstaller
                     {
                         try
                         {
-                            Process.Start(new ProcessStartInfo
-                            {
-                                FileName = "taskkill.exe",
-                                Arguments = "/PID " + process.Id + " /F /T",
-                                CreateNoWindow = true,
-                                UseShellExecute = false
-                            });
+                            KillRunningProcessTree();
                         }
                         catch
                         {
@@ -774,13 +828,16 @@ namespace TekFarmaInstaller
                 optionRows[i].Enabled = enabled;
             }
 
-            normalRadio.Enabled = enabled;
-            iRadio.Enabled = enabled;
-            servidorRadio.Enabled = enabled && SelectedMode == InstallMode.TekFarma;
-            terminalRadio.Enabled = enabled && SelectedMode == InstallMode.TekFarma;
-            closeWhenDoneCheckBox.Enabled = enabled;
+            keepOpenWhenDoneCheckBox.Enabled = enabled;
 
-            if (enabled)
+            if (!enabled)
+            {
+                normalRadio.Enabled = false;
+                iRadio.Enabled = false;
+                servidorRadio.Enabled = false;
+                terminalRadio.Enabled = false;
+            }
+            else
             {
                 UpdateProfileControls();
             }

@@ -432,6 +432,166 @@ function AtualizarVersaoTekFarmaServidor {
     return ($ProcTar.ExitCode -eq 0)
 }
 
+function ObterInstalacoesFirebird {
+    @(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "*Firebird*" })
+}
+
+function PararServicosEProcessosFirebird {
+    $ServicosFirebird = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Firebird*" -or $_.DisplayName -like "*Firebird*" })
+
+    foreach ($Servico in $ServicosFirebird) {
+        try {
+            if ($Servico.Status -ne "Stopped") {
+                LogMsg "Parando servico Firebird: $($Servico.Name)"
+                Stop-Service -Name $Servico.Name -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel parar servico Firebird $($Servico.Name): $($_.Exception.Message)"
+        }
+    }
+
+    $NomesProcessos = @("fbserver", "fbguard", "fb_inet_server", "firebird")
+    $ProcessosFirebird = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $NomesProcessos -contains $_.ProcessName -or $_.ProcessName -like "Firebird*"
+    })
+
+    foreach ($Processo in $ProcessosFirebird) {
+        try {
+            LogMsg "Finalizando processo Firebird: $($Processo.ProcessName).exe PID $($Processo.Id)"
+            Stop-Process -Id $Processo.Id -Force -ErrorAction Stop
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel finalizar processo Firebird $($Processo.ProcessName): $($_.Exception.Message)"
+        }
+    }
+}
+
+function RemoverServicoFirebirdRestante {
+    $ServicosFirebird = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Firebird*" -or $_.DisplayName -like "*Firebird*" })
+
+    foreach ($Servico in $ServicosFirebird) {
+        try {
+            LogMsg "Removendo servico Firebird restante: $($Servico.Name)"
+            & sc.exe delete $Servico.Name | Out-Null
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel remover servico Firebird $($Servico.Name): $($_.Exception.Message)"
+        }
+    }
+}
+
+function RemoverDiretorioFirebirdSeguro {
+    param([string]$Caminho)
+
+    if ([string]::IsNullOrWhiteSpace($Caminho)) {
+        return
+    }
+
+    $CaminhoNormalizado = NormalizarCaminho $Caminho
+    $RaizesPermitidas = @(
+        "C:\Program Files\Firebird",
+        "C:\Program Files (x86)\Firebird"
+    )
+
+    $Permitido = $false
+
+    foreach ($RaizPermitida in $RaizesPermitidas) {
+        if (Test-CaminhoDentroOuIgual -BasePath $RaizPermitida -Path $CaminhoNormalizado) {
+            $Permitido = $true
+            break
+        }
+    }
+
+    if (!$Permitido) {
+        LogMsg "AVISO: Remocao de pasta Firebird ignorada por seguranca: $CaminhoNormalizado"
+        return
+    }
+
+    if (Test-Path -LiteralPath $CaminhoNormalizado) {
+        try {
+            LogMsg "Removendo pasta Firebird: $CaminhoNormalizado"
+            Remove-Item -LiteralPath $CaminhoNormalizado -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel remover pasta Firebird ${CaminhoNormalizado}: $($_.Exception.Message)"
+        }
+    }
+}
+
+function DesinstalarEntradaFirebird {
+    param($Entrada)
+
+    LogMsg "Firebird encontrado: $($Entrada.DisplayName) $($Entrada.DisplayVersion)"
+
+    $Comando = if (![string]::IsNullOrWhiteSpace($Entrada.QuietUninstallString)) {
+        $Entrada.QuietUninstallString
+    }
+    else {
+        $Entrada.UninstallString
+    }
+
+    $Guid = $null
+
+    if ($Entrada.PSChildName -match "^\{[0-9A-Fa-f-]{36}\}$") {
+        $Guid = $Entrada.PSChildName
+    }
+    elseif ($Comando -match "\{[0-9A-Fa-f-]{36}\}") {
+        $Guid = $Matches[0]
+    }
+
+    try {
+        if ($Guid) {
+            LogMsg "Desinstalando Firebird via MSI: $Guid"
+            $ProcMsi = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/x", $Guid, "/qn", "/norestart") -Wait -PassThru
+            LogMsg "Desinstalacao Firebird MSI ExitCode: $($ProcMsi.ExitCode)"
+            return
+        }
+
+        if ([string]::IsNullOrWhiteSpace($Comando)) {
+            LogMsg "AVISO: Firebird sem comando de desinstalacao registrado."
+            return
+        }
+
+        if ($Comando -notmatch "/VERYSILENT|/SILENT|/quiet|/qn|/s(\s|$)") {
+            $Comando = "$Comando /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+        }
+
+        LogMsg "Desinstalando Firebird via comando registrado: $Comando"
+        $ProcCmd = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $Comando) -Wait -PassThru
+        LogMsg "Desinstalacao Firebird ExitCode: $($ProcCmd.ExitCode)"
+    }
+    catch {
+        LogMsg "AVISO: Falha ao desinstalar Firebird $($Entrada.DisplayName): $($_.Exception.Message)"
+    }
+}
+
+function RemoverFirebirdExistente {
+    PararServicosEProcessosFirebird
+
+    $FirebirdInstalados = @(ObterInstalacoesFirebird)
+
+    if ($FirebirdInstalados.Count -eq 0) {
+        LogMsg "Nenhuma instalacao do Firebird encontrada no registro."
+    }
+
+    foreach ($Firebird in $FirebirdInstalados) {
+        DesinstalarEntradaFirebird -Entrada $Firebird
+    }
+
+    Start-Sleep -Seconds 2
+    PararServicosEProcessosFirebird
+    RemoverServicoFirebirdRestante
+
+    foreach ($Firebird in $FirebirdInstalados) {
+        RemoverDiretorioFirebirdSeguro -Caminho $Firebird.InstallLocation
+    }
+
+    RemoverDiretorioFirebirdSeguro -Caminho $DestinoFirebird
+    RemoverDiretorioFirebirdSeguro -Caminho "C:\Program Files (x86)\Firebird"
+}
+
 function InstalarFirebird {
     $Argumentos = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$DestinoFirebird`""
     InstalarExe -Caminho $FirebirdExe -Argumentos $Argumentos -Nome "Firebird 2.5.9" | Out-Null
@@ -835,6 +995,10 @@ function AgendarReinicio {
 
 function FluxoServidor {
     $script:ReinicioNecessario = $false
+
+    ExecutarPasso "Remover Firebird existente" {
+        RemoverFirebirdExistente
+    }
 
     ExecutarPasso "Instalar Firebird 2.5.9" {
         InstalarFirebird
