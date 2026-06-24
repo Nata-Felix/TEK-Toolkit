@@ -52,6 +52,7 @@ namespace TekFarmaInstaller
         private readonly Button installButton = new Button();
         private readonly Button cancelButton = new Button();
         private readonly Button closeButton = new Button();
+        private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
         private readonly PictureBox logoBox = new PictureBox();
 
@@ -343,6 +344,16 @@ namespace TekFarmaInstaller
             info.ForeColor = blue;
             root.Controls.Add(info);
 
+            closeWhenDoneCheckBox.Text = "Fechar ao concluir";
+            closeWhenDoneCheckBox.Left = 420;
+            closeWhenDoneCheckBox.Top = 584;
+            closeWhenDoneCheckBox.Width = 165;
+            closeWhenDoneCheckBox.Height = 24;
+            closeWhenDoneCheckBox.Checked = false;
+            closeWhenDoneCheckBox.ForeColor = Color.FromArgb(38, 48, 64);
+            closeWhenDoneCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            root.Controls.Add(closeWhenDoneCheckBox);
+
             installButton.Text = "Instalar";
             installButton.Left = 604;
             installButton.Top = 572;
@@ -482,6 +493,11 @@ namespace TekFarmaInstaller
                 currentStepLabel.Text = "Instalacao finalizada";
                 statusLabel.Text = "Processo concluido";
                 AppendLog("[OK] Processo finalizado.");
+
+                if (closeWhenDoneCheckBox.Checked)
+                {
+                    BeginInvoke(new Action(Close));
+                }
             };
             worker.RunWorkerAsync();
         }
@@ -762,6 +778,7 @@ namespace TekFarmaInstaller
             iRadio.Enabled = enabled;
             servidorRadio.Enabled = enabled && SelectedMode == InstallMode.TekFarma;
             terminalRadio.Enabled = enabled && SelectedMode == InstallMode.TekFarma;
+            closeWhenDoneCheckBox.Enabled = enabled;
 
             if (enabled)
             {
