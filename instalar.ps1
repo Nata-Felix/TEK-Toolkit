@@ -288,7 +288,7 @@ function AplicarFixCrystal {
 
         LogMsg "Copiando arquivos do fix para: $DestinoCrystal"
 
-        Copy-Item -LiteralPath (Join-Path $TempFix "*") -Destination $DestinoCrystal -Recurse -Force -ErrorAction Stop
+        Copy-Item -Path (Join-Path $TempFix "*") -Destination $DestinoCrystal -Recurse -Force -ErrorAction Stop
 
         LogMsg "Fix crdb_adoplus aplicado com sucesso."
     }
