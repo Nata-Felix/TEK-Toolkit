@@ -20,7 +20,6 @@ param(
 [string]$Nome
 )
 
-```
 Write-Host ""
 Write-Host "Baixando: $Nome"
 
@@ -69,7 +68,6 @@ finally {
 
 Write-Progress -Activity "Baixando dependencias" -Completed
 Write-Host "Concluido: $Nome"
-```
 
 }
 
@@ -104,7 +102,6 @@ Write-Host "1 - Versao normal"
 Write-Host "2 - Versao i"
 Write-Host ""
 
-```
 $EscolhaVersao = Read-Host "Digite sua opcao"
 
 if ($EscolhaVersao -eq "1") {
@@ -117,7 +114,6 @@ else {
     Write-Host "Opcao de versao invalida."
     exit 1
 }
-```
 
 }
 
@@ -145,11 +141,9 @@ $ArquivosRelease += "VC_redist.x64.exe"
 
 foreach ($Arquivo in $ArquivosRelease) {
 $UrlArquivo = "$BaseUrl/$Arquivo"
-$DestinoArquivo = "$Destino$Arquivo"
+$DestinoArquivo = Join-Path $Destino $Arquivo
 
-```
 BaixarArquivo -Url $UrlArquivo -DestinoArquivo $DestinoArquivo -Nome $Arquivo
-```
 
 }
 
