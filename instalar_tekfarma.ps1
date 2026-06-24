@@ -906,7 +906,8 @@ function ExecutarBatsTekFarma {
         foreach ($Bat in $Bats) {
             try {
                 LogMsg "Executando BAT: $Bat"
-                $Proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$Bat`"" -WorkingDirectory (Split-Path -Parent $Bat) -Wait -PassThru
+                $ComandoBat = "call `"$Bat`" < nul"
+                $Proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c $ComandoBat" -WorkingDirectory (Split-Path -Parent $Bat) -Wait -PassThru
                 LogMsg "BAT finalizado: $NomeBat ExitCode: $($Proc.ExitCode)"
                 $Executados++
             }
