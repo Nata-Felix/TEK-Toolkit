@@ -15,7 +15,8 @@ $VCx64 = Join-Path $Base "VC_redist.x64.exe"
 $CrystalMsi = Join-Path $Base "CRRuntime_32bit_13_0_39.msi"
 $FixZip = Join-Path $Base "crdb_adoplus.zip"
 
-$DestinoSistema = "C:\TekSoftware\TekFarma"
+$RaizTekSoftware = "C:\TekSoftware"
+$DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
 $DestinoCrystal = "C:\Program Files (x86)\SAP BusinessObjects\Crystal Reports for .NET Framework 4.0\Common\SAP BusinessObjects Enterprise XI 4.0\win32_x86"
 $TempFix = "C:\Windows\Temp\crdb_adoplus_fix"
 
@@ -70,6 +71,229 @@ function InstalarExe {
 
 function ObterProcessosTek {
     @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "Tek*" })
+}
+
+function NormalizarCaminho {
+    param([string]$Caminho)
+
+    if ([string]::IsNullOrWhiteSpace($Caminho)) {
+        return ""
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath($Caminho).TrimEnd("\")
+    }
+    catch {
+        return $Caminho.TrimEnd("\")
+    }
+}
+
+function Test-CaminhoDentroOuIgual {
+    param(
+        [string]$BasePath,
+        [string]$Path
+    )
+
+    $BaseNormalizada = NormalizarCaminho $BasePath
+    $PathNormalizado = NormalizarCaminho $Path
+
+    if ([string]::IsNullOrWhiteSpace($BaseNormalizada) -or [string]::IsNullOrWhiteSpace($PathNormalizado)) {
+        return $false
+    }
+
+    return $PathNormalizado.Equals($BaseNormalizada, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $PathNormalizado.StartsWith("$BaseNormalizada\", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function ObterContaPorSid {
+    param([string]$Sid)
+
+    try {
+        return (New-Object Security.Principal.SecurityIdentifier($Sid)).Translate([Security.Principal.NTAccount]).Value
+    }
+    catch {
+        return $Sid
+    }
+}
+
+function FecharArquivosSmbTekSoftware {
+    if (!(Get-Command Get-SmbOpenFile -ErrorAction SilentlyContinue)) {
+        LogMsg "AVISO: Get-SmbOpenFile nao disponivel. Nao foi possivel fechar arquivos abertos via SMB automaticamente."
+        return
+    }
+
+    $ArquivosAbertos = @(Get-SmbOpenFile -ErrorAction SilentlyContinue | Where-Object {
+        Test-CaminhoDentroOuIgual -BasePath $RaizTekSoftware -Path $_.Path
+    })
+
+    if ($ArquivosAbertos.Count -eq 0) {
+        LogMsg "Nenhum arquivo SMB aberto em $RaizTekSoftware."
+        return
+    }
+
+    foreach ($Arquivo in $ArquivosAbertos) {
+        try {
+            LogMsg "Fechando arquivo SMB aberto: $($Arquivo.Path) FileId $($Arquivo.FileId)"
+            Close-SmbOpenFile -FileId $Arquivo.FileId -Force -ErrorAction Stop
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel fechar arquivo SMB $($Arquivo.Path). Motivo: $($_.Exception.Message)"
+        }
+    }
+}
+
+function SuspenderCompartilhamentosTekSoftware {
+    LogMsg "====================================="
+    LogMsg "Verificando compartilhamentos de $RaizTekSoftware..."
+
+    if (!(Get-Command Get-SmbShare -ErrorAction SilentlyContinue)) {
+        LogMsg "AVISO: Modulo SMB nao disponivel. Nao foi possivel suspender compartilhamentos automaticamente."
+        return @()
+    }
+
+    $Compartilhamentos = @(Get-SmbShare -ErrorAction SilentlyContinue | Where-Object {
+        -not $_.Special -and (Test-CaminhoDentroOuIgual -BasePath $RaizTekSoftware -Path $_.Path)
+    })
+
+    if ($Compartilhamentos.Count -eq 0) {
+        LogMsg "Nenhum compartilhamento encontrado em $RaizTekSoftware."
+        return @()
+    }
+
+    FecharArquivosSmbTekSoftware
+
+    $Snapshots = @()
+
+    foreach ($Share in $Compartilhamentos) {
+        $Acessos = @()
+
+        try {
+            $Acessos = @(Get-SmbShareAccess -Name $Share.Name -ErrorAction Stop | Select-Object AccountName, AccessControlType, AccessRight)
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel ler permissoes do compartilhamento $($Share.Name). Motivo: $($_.Exception.Message)"
+        }
+
+        $Snapshots += [pscustomobject]@{
+            Name = $Share.Name
+            Path = $Share.Path
+            Description = $Share.Description
+            CachingMode = $Share.CachingMode
+            FolderEnumerationMode = $Share.FolderEnumerationMode
+            ConcurrentUserLimit = $Share.ConcurrentUserLimit
+            Access = $Acessos
+        }
+
+        try {
+            LogMsg "Removendo compartilhamento temporariamente: $($Share.Name) -> $($Share.Path)"
+            Remove-SmbShare -Name $Share.Name -Force -ErrorAction Stop
+        }
+        catch {
+            LogMsg "ERRO: Nao foi possivel remover o compartilhamento $($Share.Name). A extracao da versao foi cancelada."
+            LogMsg "Motivo: $($_.Exception.Message)"
+            exit 1
+        }
+    }
+
+    return $Snapshots
+}
+
+function RestaurarPermissaoCompartilhamento {
+    param(
+        [string]$NomeCompartilhamento,
+        [string]$Conta,
+        [string]$TipoControle,
+        [string]$Direito
+    )
+
+    try {
+        if ($TipoControle -eq "Deny") {
+            Block-SmbShareAccess -Name $NomeCompartilhamento -AccountName $Conta -Force -ErrorAction Stop | Out-Null
+        }
+        else {
+            Grant-SmbShareAccess -Name $NomeCompartilhamento -AccountName $Conta -AccessRight $Direito -Force -ErrorAction Stop | Out-Null
+        }
+    }
+    catch {
+        LogMsg "AVISO: Nao foi possivel aplicar permissao $Direito para $Conta no compartilhamento $NomeCompartilhamento. Motivo: $($_.Exception.Message)"
+    }
+}
+
+function GarantirPermissoesPadraoCompartilhamento {
+    param([string]$NomeCompartilhamento)
+
+    $ContasPadrao = @(
+        ObterContaPorSid "S-1-1-0",
+        ObterContaPorSid "S-1-5-2",
+        ObterContaPorSid "S-1-5-32-546"
+    )
+
+    foreach ($Conta in $ContasPadrao) {
+        RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Conta -TipoControle "Allow" -Direito "Full"
+    }
+}
+
+function RestaurarCompartilhamentosTekSoftware {
+    param([array]$Compartilhamentos)
+
+    if (!$Compartilhamentos -or $Compartilhamentos.Count -eq 0) {
+        return
+    }
+
+    if (!(Get-Command New-SmbShare -ErrorAction SilentlyContinue)) {
+        LogMsg "ERRO: New-SmbShare nao disponivel. Nao foi possivel restaurar compartilhamentos automaticamente."
+        exit 1
+    }
+
+    foreach ($Share in $Compartilhamentos) {
+        try {
+            if (!(Test-Path $Share.Path)) {
+                New-Item -ItemType Directory -Path $Share.Path -Force | Out-Null
+            }
+
+            $Parametros = @{
+                Name = $Share.Name
+                Path = $Share.Path
+            }
+
+            if (![string]::IsNullOrWhiteSpace($Share.Description)) {
+                $Parametros.Description = $Share.Description
+            }
+
+            if ($Share.CachingMode) {
+                $Parametros.CachingMode = $Share.CachingMode
+            }
+
+            if ($Share.FolderEnumerationMode) {
+                $Parametros.FolderEnumerationMode = $Share.FolderEnumerationMode
+            }
+
+            LogMsg "Restaurando compartilhamento: $($Share.Name) -> $($Share.Path)"
+            New-SmbShare @Parametros | Out-Null
+
+            $AcessosAtuais = @(Get-SmbShareAccess -Name $Share.Name -ErrorAction SilentlyContinue)
+
+            foreach ($AcessoAtual in $AcessosAtuais) {
+                try {
+                    Revoke-SmbShareAccess -Name $Share.Name -AccountName $AcessoAtual.AccountName -Force -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    LogMsg "AVISO: Nao foi possivel remover permissao temporaria de $($AcessoAtual.AccountName) no compartilhamento $($Share.Name)."
+                }
+            }
+
+            foreach ($Acesso in $Share.Access) {
+                RestaurarPermissaoCompartilhamento -NomeCompartilhamento $Share.Name -Conta $Acesso.AccountName -TipoControle $Acesso.AccessControlType -Direito $Acesso.AccessRight
+            }
+
+            GarantirPermissoesPadraoCompartilhamento -NomeCompartilhamento $Share.Name
+        }
+        catch {
+            LogMsg "ERRO: Falha ao restaurar compartilhamento $($Share.Name)."
+            LogMsg "Motivo: $($_.Exception.Message)"
+            exit 1
+        }
+    }
 }
 
 function FinalizarProcessosTek {
@@ -166,6 +390,8 @@ function AtualizarVersaoTekFarma {
     LogMsg "Garantindo que nao exista processo Tek* ativo antes da extracao..."
     FinalizarProcessosTek
 
+    $CompartilhamentosSuspensos = @(SuspenderCompartilhamentosTekSoftware)
+
     LogMsg "Extraindo com tar..."
     LogMsg "Comando equivalente: tar -xf `"$Pacote`" -C `"$DestinoSistema`""
 
@@ -176,7 +402,12 @@ function AtualizarVersaoTekFarma {
         $DestinoSistema
     )
 
-    $ProcTar = Start-Process -FilePath "tar.exe" -ArgumentList $ArgumentosTar -Wait -PassThru
+    try {
+        $ProcTar = Start-Process -FilePath "tar.exe" -ArgumentList $ArgumentosTar -Wait -PassThru
+    }
+    finally {
+        RestaurarCompartilhamentosTekSoftware -Compartilhamentos $CompartilhamentosSuspensos
+    }
 
     LogMsg "Extracao da versao finalizada. ExitCode: $($ProcTar.ExitCode)"
 
