@@ -162,6 +162,29 @@ Write-Host "Downloads concluidos."
 Write-Host "Iniciando instalador como Administrador..."
 
 $InstaladorLocal = "$Destino\instalar.ps1"
-$Argumentos = "-ExecutionPolicy Bypass -NoExit -File `"$InstaladorLocal`" -Modo $Modo -TipoVersao `"$TipoVersao`""
+$Argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$InstaladorLocal`" -Modo $Modo -TipoVersao `"$TipoVersao`""
 
-Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $Argumentos
+try {
+    $ProcessoElevado = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $Argumentos -Wait -PassThru -ErrorAction Stop
+    $CodigoSaida = 0
+
+    if ($null -ne $ProcessoElevado.ExitCode) {
+        $CodigoSaida = $ProcessoElevado.ExitCode
+    }
+
+    if ($CodigoSaida -eq 0) {
+        Write-Host "Instalador finalizado com sucesso. Fechando esta janela..."
+    }
+    else {
+        Write-Host "Instalador finalizado com erro. Codigo de saida: $CodigoSaida"
+    }
+
+    Start-Sleep -Seconds 2
+    [Environment]::Exit($CodigoSaida)
+}
+catch {
+    Write-Host "ERRO: Nao foi possivel iniciar o instalador como Administrador."
+    Write-Host $_.Exception.Message
+    Start-Sleep -Seconds 5
+    [Environment]::Exit(1)
+}
