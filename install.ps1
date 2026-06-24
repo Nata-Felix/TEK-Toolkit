@@ -83,18 +83,20 @@ Write-Host "1 - Instalacao somente versao"
 Write-Host "2 - Instalacao somente Crystal"
 Write-Host "3 - Instalacao FULL: versao + VS + DotNet + Crystal"
 Write-Host "4 - Instalacao SEMI-FULL: versao + Crystal"
+Write-Host "99 - Instalacao TekFarma servidor/terminal"
 Write-Host ""
 
 $Modo = Read-Host "Opcao"
 
-if ($Modo -notin @("1", "2", "3", "4")) {
+if ($Modo -notin @("1", "2", "3", "4", "99")) {
 Write-Host "Opcao invalida."
 exit 1
 }
 
 $TipoVersao = ""
+$PerfilTek = ""
 
-if ($Modo -eq "1" -or $Modo -eq "3" -or $Modo -eq "4") {
+if ($Modo -eq "1" -or $Modo -eq "3" -or $Modo -eq "4" -or $Modo -eq "99") {
 Write-Host ""
 Write-Host "Escolha a versao do TekFarma:"
 Write-Host ""
@@ -112,6 +114,29 @@ elseif ($EscolhaVersao -eq "2") {
 }
 else {
     Write-Host "Opcao de versao invalida."
+    exit 1
+}
+
+}
+
+if ($Modo -eq "99") {
+Write-Host ""
+Write-Host "Escolha o tipo de instalacao TekFarma:"
+Write-Host ""
+Write-Host "1 - Servidor"
+Write-Host "2 - Terminal"
+Write-Host ""
+
+$EscolhaPerfilTek = Read-Host "Digite sua opcao"
+
+if ($EscolhaPerfilTek -eq "1") {
+    $PerfilTek = "servidor"
+}
+elseif ($EscolhaPerfilTek -eq "2") {
+    $PerfilTek = "terminal"
+}
+else {
+    Write-Host "Opcao de instalacao TekFarma invalida."
     exit 1
 }
 
@@ -139,6 +164,21 @@ $ArquivosRelease += "VC_redist.x86.exe"
 $ArquivosRelease += "VC_redist.x64.exe"
 }
 
+if ($Modo -eq "99") {
+$ArquivosRelease += "CRRuntime_32bit_13_0_39.msi"
+$ArquivosRelease += "crdb_adoplus.zip"
+$ArquivosRelease += "dotnet48.exe"
+$ArquivosRelease += "VC_redist.x86.exe"
+$ArquivosRelease += "VC_redist.x64.exe"
+
+if ($PerfilTek -eq "servidor") {
+    $ArquivosRelease += "Firebird-2.5.9.exe"
+    $ArquivosRelease += "TekFarmaPasta.zip"
+    $ArquivosRelease += "DLLS.zip"
+}
+
+}
+
 foreach ($Arquivo in $ArquivosRelease) {
 $UrlArquivo = "$BaseUrl/$Arquivo"
 $DestinoArquivo = Join-Path $Destino $Arquivo
@@ -147,22 +187,43 @@ BaixarArquivo -Url $UrlArquivo -DestinoArquivo $DestinoArquivo -Nome $Arquivo
 
 }
 
-if ($TipoVersao -eq "normal") {
+if ($TipoVersao -eq "normal" -and $Modo -ne "99") {
 BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50.exe" -Nome "TekFarma50.exe"
 }
 
-if ($TipoVersao -eq "i") {
+if ($TipoVersao -eq "i" -and $Modo -ne "99") {
 BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
 }
 
-BaixarArquivo -Url "$RawUrl/instalar.ps1" -DestinoArquivo "$Destino\instalar.ps1" -Nome "instalar.ps1"
+if ($Modo -eq "99" -and $PerfilTek -eq "servidor") {
+    if ($TipoVersao -eq "normal") {
+        BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50.exe" -Nome "TekFarma50.exe"
+    }
+
+    if ($TipoVersao -eq "i") {
+        BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
+    }
+}
+
+if ($Modo -eq "99") {
+    BaixarArquivo -Url "$RawUrl/instalar_tekfarma.ps1" -DestinoArquivo "$Destino\instalar_tekfarma.ps1" -Nome "instalar_tekfarma.ps1"
+}
+else {
+    BaixarArquivo -Url "$RawUrl/instalar.ps1" -DestinoArquivo "$Destino\instalar.ps1" -Nome "instalar.ps1"
+}
 
 Write-Host ""
 Write-Host "Downloads concluidos."
 Write-Host "Iniciando instalador como Administrador..."
 
-$InstaladorLocal = "$Destino\instalar.ps1"
-$Argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$InstaladorLocal`" -Modo $Modo -TipoVersao `"$TipoVersao`""
+if ($Modo -eq "99") {
+    $InstaladorLocal = "$Destino\instalar_tekfarma.ps1"
+    $Argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$InstaladorLocal`" -TipoVersao `"$TipoVersao`" -PerfilTek `"$PerfilTek`""
+}
+else {
+    $InstaladorLocal = "$Destino\instalar.ps1"
+    $Argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$InstaladorLocal`" -Modo $Modo -TipoVersao `"$TipoVersao`""
+}
 
 try {
     $ProcessoElevado = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $Argumentos -Wait -PassThru -ErrorAction Stop
