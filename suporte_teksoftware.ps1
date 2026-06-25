@@ -11,6 +11,9 @@ $Log = Join-Path $Base "suporte_teksoftware_log.txt"
 $FirebirdExe = Join-Path $Base "Firebird-2.5.9.exe"
 $CertificadoZip = Join-Path $Base "CADEIA_CERTIFICADO.zip"
 $CertificadoZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/CADEIA_CERTIFICADO.zip"
+$GbasZip = Join-Path $Base "GBAS_FP_NOVO.zip"
+$GbasZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/GBAS_FP_NOVO.zip"
+$FarmaciaPopularPortalUrl = "https://farmaciapopular-portal.saude.gov.br/farmaciapopular-portal/login.jsf"
 
 $RaizTekSoftware = "C:\TekSoftware"
 $DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
@@ -294,6 +297,187 @@ function InstalarCadeiaCertificado {
         }
         catch {
             LogMsg "AVISO: Falha ao limpar pasta temporaria de certificados: $($_.Exception.Message)"
+        }
+    }
+}
+
+function BaixarGbasSeNecessario {
+    if (Test-Path $GbasZip) {
+        return
+    }
+
+    LogMsg "Arquivo GBAS_FP_NOVO.zip nao encontrado na pasta temporaria. Baixando do release..."
+    Invoke-WebRequest -UseBasicParsing -Uri $GbasZipUrl -OutFile $GbasZip
+    LogMsg "GBAS_FP_NOVO.zip baixado."
+}
+
+function AdicionarCandidatoTekFarma {
+    param(
+        [System.Collections.ArrayList]$Lista,
+        [string]$Caminho
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Caminho)) {
+        return
+    }
+
+    $Normalizado = NormalizarCaminho $Caminho
+
+    if ([string]::IsNullOrWhiteSpace($Normalizado)) {
+        return
+    }
+
+    foreach ($Item in $Lista) {
+        if ($Item.Equals($Normalizado, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return
+        }
+    }
+
+    [void]$Lista.Add($Normalizado)
+}
+
+function ObterCandidatosTekFarmaGbas {
+    $Candidatos = New-Object System.Collections.ArrayList
+
+    foreach ($Drive in @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=4" -ErrorAction SilentlyContinue)) {
+        $Letra = $Drive.DeviceID
+
+        if ([string]::IsNullOrWhiteSpace($Letra)) {
+            continue
+        }
+
+        AdicionarCandidatoTekFarma -Lista $Candidatos -Caminho (Join-Path "$Letra\" "TekSoftware\TekFarma")
+        AdicionarCandidatoTekFarma -Lista $Candidatos -Caminho (Join-Path "$Letra\" "TekFarma")
+    }
+
+    foreach ($Codigo in ([int][char]'Z')..([int][char]'D')) {
+        $Letra = [char]$Codigo
+        $Root = "$Letra`:\"
+
+        if (Test-Path $Root) {
+            AdicionarCandidatoTekFarma -Lista $Candidatos -Caminho (Join-Path $Root "TekSoftware\TekFarma")
+            AdicionarCandidatoTekFarma -Lista $Candidatos -Caminho (Join-Path $Root "TekFarma")
+        }
+    }
+
+    AdicionarCandidatoTekFarma -Lista $Candidatos -Caminho $DestinoSistema
+
+    return @($Candidatos)
+}
+
+function ObterDestinoTekFarmaGbas {
+    foreach ($Candidato in @(ObterCandidatosTekFarmaGbas)) {
+        if (Test-Path $Candidato) {
+            LogMsg "Destino TekFarma encontrado: $Candidato"
+            return $Candidato
+        }
+    }
+
+    LogMsg "Nenhuma pasta TekFarma existente encontrada. Criando destino local: $DestinoSistema"
+    New-Item -ItemType Directory -Path $DestinoSistema -Force | Out-Null
+    return $DestinoSistema
+}
+
+function CopiarConteudoPasta {
+    param(
+        [string]$Origem,
+        [string]$Destino
+    )
+
+    $Arquivos = @(Get-ChildItem -LiteralPath $Origem -Recurse -File -Force)
+
+    foreach ($Arquivo in $Arquivos) {
+        $Relativo = $Arquivo.FullName.Substring($Origem.Length).TrimStart("\")
+        $DestinoArquivo = Join-Path $Destino $Relativo
+        $DestinoPasta = Split-Path -Parent $DestinoArquivo
+
+        if (!(Test-Path $DestinoPasta)) {
+            New-Item -ItemType Directory -Path $DestinoPasta -Force | Out-Null
+        }
+
+        Copy-Item -LiteralPath $Arquivo.FullName -Destination $DestinoArquivo -Force
+        LogMsg "Arquivo copiado: $Relativo"
+    }
+
+    LogMsg "$($Arquivos.Count) arquivo(s) copiado(s) para $Destino"
+}
+
+function EncontrarIdentificacaoTerminal {
+    param([string]$Destino)
+
+    $Nomes = @(
+        "Identificacao_Terminal.exe",
+        "Identificar_Terminal.exe",
+        "Identicacao_Terminal.exe"
+    )
+
+    foreach ($Nome in $Nomes) {
+        $Caminho = Join-Path $Destino $Nome
+
+        if (Test-Path $Caminho) {
+            return $Caminho
+        }
+    }
+
+    $Encontrado = Get-ChildItem -LiteralPath $Destino -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "(?i)Ident.*Terminal.*\.exe$" } |
+        Select-Object -First 1
+
+    if ($null -ne $Encontrado) {
+        return $Encontrado.FullName
+    }
+
+    return ""
+}
+
+function InstalarFarmaciaPopularGbas {
+    BaixarGbasSeNecessario
+
+    if (!(Test-Path $GbasZip)) {
+        throw "Arquivo GBAS_FP_NOVO.zip nao encontrado: $GbasZip"
+    }
+
+    $DestinoTekFarma = ObterDestinoTekFarmaGbas
+    New-Item -ItemType Directory -Path $DestinoTekFarma -Force | Out-Null
+
+    $DestinoTemp = Join-Path $Base ("gbas_fp_" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $DestinoTemp -Force | Out-Null
+
+    try {
+        LogMsg "Extraindo GBAS_FP_NOVO.zip para pasta temporaria."
+        Expand-Archive -LiteralPath $GbasZip -DestinationPath $DestinoTemp -Force
+
+        $ItensRaiz = @(Get-ChildItem -LiteralPath $DestinoTemp -Force)
+        $OrigemArquivos = $DestinoTemp
+
+        if ($ItensRaiz.Count -eq 1 -and $ItensRaiz[0].PSIsContainer) {
+            $OrigemArquivos = $ItensRaiz[0].FullName
+            LogMsg "Pasta interna detectada no zip: $($ItensRaiz[0].Name)"
+        }
+
+        CopiarConteudoPasta -Origem $OrigemArquivos -Destino $DestinoTekFarma
+
+        $IdentificacaoTerminal = EncontrarIdentificacaoTerminal -Destino $DestinoTekFarma
+
+        if ([string]::IsNullOrWhiteSpace($IdentificacaoTerminal)) {
+            LogMsg "AVISO: Executavel de identificacao do terminal nao encontrado em $DestinoTekFarma"
+        }
+        else {
+            LogMsg "Abrindo identificacao do terminal: $IdentificacaoTerminal"
+            Start-Process -FilePath $IdentificacaoTerminal -WorkingDirectory (Split-Path -Parent $IdentificacaoTerminal)
+        }
+
+        LogMsg "Abrindo portal Farmacia Popular: $FarmaciaPopularPortalUrl"
+        Start-Process $FarmaciaPopularPortalUrl
+    }
+    finally {
+        try {
+            if ([System.IO.Directory]::Exists($DestinoTemp)) {
+                [System.IO.Directory]::Delete($DestinoTemp, $true)
+            }
+        }
+        catch {
+            LogMsg "AVISO: Falha ao limpar pasta temporaria GBAS: $($_.Exception.Message)"
         }
     }
 }
@@ -1028,6 +1212,11 @@ foreach ($Acao in $ListaAcoes) {
         "firewall" {
             ExecutarPasso "Adicionar excecao no firewall" {
                 AdicionarExcecoesFirewall
+            }
+        }
+        "farmaciapopular" {
+            ExecutarPasso "Instalar Farmacia Popular GBAS" {
+                InstalarFarmaciaPopularGbas
             }
         }
         "firebird" {

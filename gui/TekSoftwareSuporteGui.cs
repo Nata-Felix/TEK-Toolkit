@@ -192,6 +192,7 @@ namespace TekSoftwareSuporte
 
             AddSection(actionsPanel, "Aplicativos", ref y);
             AddAction(actionsPanel, "firewall", "Adicionar excecao no firewall", "Executa os BATs e cria regras para executaveis TekSoftware encontrados.", ref y);
+            AddAction(actionsPanel, "farmaciapopular", "Instalar Farmacia Popular GBAS", "Baixa o GBAS, copia para TekFarma, abre a identificacao do terminal e o portal.", ref y);
 
             AddSection(actionsPanel, "Servidor", ref y);
             AddAction(actionsPanel, "firebird", "Reinstalar Firebird", "Remove Firebird atual, reinstala 2.5.9 e configura recuperacao em 3 tentativas.", ref y);
@@ -534,6 +535,11 @@ namespace TekSoftwareSuporte
             if (plan.ContainsAction("certificados"))
             {
                 plan.Downloads.Add(new DownloadItem(BaseUrl + "/CADEIA_CERTIFICADO.zip", "CADEIA_CERTIFICADO.zip", "CADEIA_CERTIFICADO.zip"));
+            }
+
+            if (plan.ContainsAction("farmaciapopular"))
+            {
+                plan.Downloads.Add(new DownloadItem(BaseUrl + "/GBAS_FP_NOVO.zip", "GBAS_FP_NOVO.zip", "GBAS_FP_NOVO.zip"));
             }
 
             return plan;
