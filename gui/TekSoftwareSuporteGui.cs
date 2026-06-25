@@ -552,7 +552,7 @@ namespace TekSoftwareSuporte
 
             if (selectedPrinter != null)
             {
-                text = selectedPrinter.Marca + " / " + selectedPrinter.Modelo;
+                text = selectedPrinter.BrandName + " / " + selectedPrinter.ModelName;
             }
 
             printerSelectionLabel.Text = text;
@@ -700,9 +700,9 @@ namespace TekSoftwareSuporte
                 plan.PrintersToRemove.AddRange(selectedPrintersToRemove);
                 plan.PrinterDriversToRemove.AddRange(selectedPrinterDriversToRemove);
                 plan.Downloads.Add(new DownloadItem(
-                    DriversBaseUrl + "/" + selectedPrinter.Arquivo,
-                    Path.GetFileName(selectedPrinter.Arquivo),
-                    "Driver " + selectedPrinter.Marca + " " + selectedPrinter.Modelo));
+                    DriversBaseUrl + "/" + selectedPrinter.AssetFile,
+                    Path.GetFileName(selectedPrinter.AssetFile),
+                    "Driver " + selectedPrinter.BrandName + " " + selectedPrinter.ModelName));
             }
 
             return plan;
@@ -747,10 +747,10 @@ namespace TekSoftwareSuporte
 
             if (plan.PrinterDriver != null)
             {
-                args += " -ImpressoraMarca " + QuoteArgument(plan.PrinterDriver.Marca);
-                args += " -ImpressoraModelo " + QuoteArgument(plan.PrinterDriver.Modelo);
-                args += " -ImpressoraArquivo " + QuoteArgument(Path.GetFileName(plan.PrinterDriver.Arquivo));
-                args += " -ImpressoraInstalador " + QuoteArgument(plan.PrinterDriver.Instalador);
+                args += " -ImpressoraMarca " + QuoteArgument(plan.PrinterDriver.BrandName);
+                args += " -ImpressoraModelo " + QuoteArgument(plan.PrinterDriver.ModelName);
+                args += " -ImpressoraArquivo " + QuoteArgument(Path.GetFileName(plan.PrinterDriver.AssetFile));
+                args += " -ImpressoraInstalador " + QuoteArgument(plan.PrinterDriver.InstallerPath);
                 args += " -RemoverImpressoras " + QuoteArgument(JoinArgumentList(plan.PrintersToRemove));
                 args += " -RemoverDriversImpressora " + QuoteArgument(JoinArgumentList(plan.PrinterDriversToRemove));
             }
@@ -1062,22 +1062,22 @@ namespace TekSoftwareSuporte
         public string origem { get; set; }
         public long tamanhoBytes { get; set; }
 
-        public string Marca
+        public string BrandName
         {
             get { return marca ?? ""; }
         }
 
-        public string Modelo
+        public string ModelName
         {
             get { return modelo ?? ""; }
         }
 
-        public string Arquivo
+        public string AssetFile
         {
             get { return arquivo ?? ""; }
         }
 
-        public string Instalador
+        public string InstallerPath
         {
             get { return instalador ?? ""; }
         }
@@ -1086,7 +1086,7 @@ namespace TekSoftwareSuporte
         {
             get
             {
-                string text = Modelo;
+                string text = ModelName;
 
                 if (tamanhoBytes > 0)
                 {
@@ -1283,7 +1283,7 @@ namespace TekSoftwareSuporte
                     {
                         for (int i = 0; i < loaded.Length; i++)
                         {
-                            if (loaded[i] != null && !String.IsNullOrWhiteSpace(loaded[i].Marca) && !String.IsNullOrWhiteSpace(loaded[i].Modelo) && !String.IsNullOrWhiteSpace(loaded[i].Arquivo))
+                            if (loaded[i] != null && !String.IsNullOrWhiteSpace(loaded[i].BrandName) && !String.IsNullOrWhiteSpace(loaded[i].ModelName) && !String.IsNullOrWhiteSpace(loaded[i].AssetFile))
                             {
                                 drivers.Add(loaded[i]);
                             }
@@ -1293,9 +1293,9 @@ namespace TekSoftwareSuporte
 
                 drivers.Sort(delegate(PrinterDriver a, PrinterDriver b)
                 {
-                    int brand = String.Compare(a.Marca, b.Marca, StringComparison.OrdinalIgnoreCase);
+                    int brand = String.Compare(a.BrandName, b.BrandName, StringComparison.OrdinalIgnoreCase);
                     if (brand != 0) return brand;
-                    return String.Compare(a.Modelo, b.Modelo, StringComparison.OrdinalIgnoreCase);
+                    return String.Compare(a.ModelName, b.ModelName, StringComparison.OrdinalIgnoreCase);
                 });
 
                 PopulateBrands();
@@ -1322,9 +1322,9 @@ namespace TekSoftwareSuporte
 
             for (int i = 0; i < drivers.Count; i++)
             {
-                if (!ContainsText(brands, drivers[i].Marca))
+                if (!ContainsText(brands, drivers[i].BrandName))
                 {
-                    brands.Add(drivers[i].Marca);
+                    brands.Add(drivers[i].BrandName);
                 }
             }
 
@@ -1339,7 +1339,7 @@ namespace TekSoftwareSuporte
             {
                 for (int i = 0; i < brandList.Items.Count; i++)
                 {
-                    if (String.Equals(Convert.ToString(brandList.Items[i]), currentDriver.Marca, StringComparison.OrdinalIgnoreCase))
+                    if (String.Equals(Convert.ToString(brandList.Items[i]), currentDriver.BrandName, StringComparison.OrdinalIgnoreCase))
                     {
                         brandList.SelectedIndex = i;
                         SelectCurrentModel();
@@ -1361,7 +1361,7 @@ namespace TekSoftwareSuporte
 
             for (int i = 0; i < drivers.Count; i++)
             {
-                if (String.Equals(drivers[i].Marca, brand, StringComparison.OrdinalIgnoreCase))
+                if (String.Equals(drivers[i].BrandName, brand, StringComparison.OrdinalIgnoreCase))
                 {
                     modelList.Items.Add(drivers[i]);
                 }
@@ -1387,8 +1387,8 @@ namespace TekSoftwareSuporte
             {
                 PrinterDriver driver = modelList.Items[i] as PrinterDriver;
                 if (driver != null &&
-                    String.Equals(driver.Marca, currentDriver.Marca, StringComparison.OrdinalIgnoreCase) &&
-                    String.Equals(driver.Modelo, currentDriver.Modelo, StringComparison.OrdinalIgnoreCase))
+                    String.Equals(driver.BrandName, currentDriver.BrandName, StringComparison.OrdinalIgnoreCase) &&
+                    String.Equals(driver.ModelName, currentDriver.ModelName, StringComparison.OrdinalIgnoreCase))
                 {
                     modelList.SelectedIndex = i;
                     return;
@@ -1407,8 +1407,8 @@ namespace TekSoftwareSuporte
                 return;
             }
 
-            string installer = String.IsNullOrWhiteSpace(driver.Instalador) ? "instalador automatico" : driver.Instalador;
-            detailLabel.Text = "Arquivo: " + driver.Arquivo + " | Instalador: " + installer;
+            string installer = String.IsNullOrWhiteSpace(driver.InstallerPath) ? "instalador automatico" : driver.InstallerPath;
+            detailLabel.Text = "Arquivo: " + driver.AssetFile + " | Instalador: " + installer;
         }
 
         private void ConfirmSelection()
