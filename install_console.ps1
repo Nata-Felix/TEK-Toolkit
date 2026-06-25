@@ -108,16 +108,15 @@ Write-Host "====================================="
 Write-Host ""
 Write-Host "Digite sua opcao:"
 Write-Host ""
-Write-Host "1 - Instalacao somente versao"
-Write-Host "2 - Instalacao somente Crystal"
-Write-Host "3 - Instalacao FULL: versao + VS + DotNet + Crystal"
-Write-Host "4 - Instalacao SEMI-FULL: versao + Crystal"
-Write-Host "99 - Instalacao TekFarma servidor/terminal"
+Write-Host "1 - Somente Versao"
+Write-Host "2 - Somente Crystal (.NET 4.8 + VS x86/x64 + CRRuntime_39)"
+Write-Host "3 - Completo (versao + Crystal)"
+Write-Host "99 - Novo Servidor/Terminal"
 Write-Host ""
 
 $Modo = Read-Host "Opcao"
 
-if ($Modo -notin @("1", "2", "3", "4", "99")) {
+if ($Modo -notin @("1", "2", "3", "99")) {
 Write-Host "Opcao invalida."
 exit 1
 }
@@ -125,7 +124,31 @@ exit 1
 $TipoVersao = ""
 $PerfilTek = ""
 
-if ($Modo -eq "1" -or $Modo -eq "3" -or $Modo -eq "4" -or $Modo -eq "99") {
+if ($Modo -eq "99") {
+Write-Host ""
+Write-Host "Escolha o tipo de instalacao TekFarma:"
+Write-Host ""
+Write-Host "1 - Servidor"
+Write-Host "2 - Terminal"
+Write-Host ""
+
+$EscolhaPerfilTek = Read-Host "Digite sua opcao"
+
+if ($EscolhaPerfilTek -eq "1") {
+    $PerfilTek = "servidor"
+}
+elseif ($EscolhaPerfilTek -eq "2") {
+    $PerfilTek = "terminal"
+    $TipoVersao = "normal"
+}
+else {
+    Write-Host "Opcao de instalacao TekFarma invalida."
+    exit 1
+}
+
+}
+
+if ($Modo -eq "1" -or $Modo -eq "3" -or ($Modo -eq "99" -and $PerfilTek -eq "servidor")) {
 Write-Host ""
 Write-Host "Escolha a versao do TekFarma:"
 Write-Host ""
@@ -148,29 +171,6 @@ else {
 
 }
 
-if ($Modo -eq "99") {
-Write-Host ""
-Write-Host "Escolha o tipo de instalacao TekFarma:"
-Write-Host ""
-Write-Host "1 - Servidor"
-Write-Host "2 - Terminal"
-Write-Host ""
-
-$EscolhaPerfilTek = Read-Host "Digite sua opcao"
-
-if ($EscolhaPerfilTek -eq "1") {
-    $PerfilTek = "servidor"
-}
-elseif ($EscolhaPerfilTek -eq "2") {
-    $PerfilTek = "terminal"
-}
-else {
-    Write-Host "Opcao de instalacao TekFarma invalida."
-    exit 1
-}
-
-}
-
 Write-Host ""
 Write-Host "Preparando pasta temporaria..."
 
@@ -182,17 +182,12 @@ New-Item -ItemType Directory -Path $Destino -Force | Out-Null
 
 $ArquivosRelease = @()
 
-if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
+if ($Modo -eq "2" -or $Modo -eq "3") {
 $ArquivosRelease += "CRRuntime_32bit_13_0_39.msi"
 $ArquivosRelease += "crdb_adoplus.zip"
 }
 
-if ($Modo -eq "2") {
-$ArquivosRelease += "VC_redist.x86.exe"
-$ArquivosRelease += "VC_redist.x64.exe"
-}
-
-if ($Modo -eq "3") {
+if ($Modo -eq "2" -or $Modo -eq "3") {
 $ArquivosRelease += "dotnet48.exe"
 $ArquivosRelease += "VC_redist.x86.exe"
 $ArquivosRelease += "VC_redist.x64.exe"

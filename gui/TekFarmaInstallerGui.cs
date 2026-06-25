@@ -55,6 +55,7 @@ namespace TekFarmaInstaller
         private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
         private readonly PictureBox logoBox = new PictureBox();
+        private readonly ToolTip optionToolTip = new ToolTip();
 
         private BackgroundWorker worker;
         private Process runningProcess;
@@ -81,6 +82,9 @@ namespace TekFarmaInstaller
             }
 
             BuildLayout();
+            optionToolTip.AutoPopDelay = 12000;
+            optionToolTip.InitialDelay = 350;
+            optionToolTip.ReshowDelay = 100;
             SelectMode(InstallMode.Versao);
             UpdateProfileControls();
         }
@@ -184,17 +188,20 @@ namespace TekFarmaInstaller
             };
             root.Controls.Add(optionsPanel);
 
-            AddOption(optionsPanel, InstallMode.Versao, 8, "Instalacao somente versao", "", "box");
-            AddOption(optionsPanel, InstallMode.Crystal, 70, "Instalacao somente Crystal", "", "diamond");
-            AddOption(optionsPanel, InstallMode.Full, 132, "Instalacao FULL: versao + VS +", "DotNet + Crystal", "stack");
-            AddOption(optionsPanel, InstallMode.SemiFull, 194, "Instalacao SEMI-FULL:", "versao + Crystal", "cube");
-            AddOption(optionsPanel, InstallMode.TekFarma, 256, "Instalacao TekFarma", "servidor / terminal", "network");
+            AddOption(optionsPanel, InstallMode.Versao, 8, "Somente Versao", "", "box",
+                "Atualiza apenas a versao do TekFarma em C:\\TekSoftware\\TekFarma.");
+            AddOption(optionsPanel, InstallMode.Crystal, 70, "Somente Crystal", "", "diamond",
+                ".NET 4.8, VS x86/x64, CRRuntime_39 e fix Crystal.");
+            AddOption(optionsPanel, InstallMode.Full, 132, "Completo", "versao + Crystal", "stack",
+                "Atualiza a versao do TekFarma e instala .NET 4.8, VS x86/x64, CRRuntime_39 e fix Crystal.");
+            AddOption(optionsPanel, InstallMode.TekFarma, 194, "Novo Servidor/Terminal", "", "network",
+                "Servidor: Firebird, pastas, banco, versao e dependencias. Terminal: dependencias, credencial, mapeamento e atalho.");
 
             BuildChoicePanel(root);
             BuildProgressPanel(root);
         }
 
-        private void AddOption(Panel parent, InstallMode mode, int top, string title, string subtitle, string icon)
+        private void AddOption(Panel parent, InstallMode mode, int top, string title, string subtitle, string icon, string tooltip)
         {
             OptionRow row = new OptionRow(mode, title, subtitle, icon);
             row.Left = 8;
@@ -204,6 +211,17 @@ namespace TekFarmaInstaller
             row.SelectedChanged += delegate { SelectMode(row.Mode); };
             parent.Controls.Add(row);
             optionRows.Add(row);
+            SetTooltip(row, tooltip);
+        }
+
+        private void SetTooltip(Control control, string text)
+        {
+            optionToolTip.SetToolTip(control, text);
+
+            foreach (Control child in control.Controls)
+            {
+                SetTooltip(child, text);
+            }
         }
 
         private void BuildChoicePanel(Control root)
@@ -442,7 +460,6 @@ namespace TekFarmaInstaller
             InstallMode mode = SelectedMode;
             bool needsVersion = mode == InstallMode.Versao ||
                 mode == InstallMode.Full ||
-                mode == InstallMode.SemiFull ||
                 (mode == InstallMode.TekFarma && servidorRadio.Checked);
             bool needsProfile = mode == InstallMode.TekFarma;
 
@@ -598,21 +615,15 @@ namespace TekFarmaInstaller
             plan.TipoVersao = tipoVersao;
             plan.PerfilTek = perfilTek;
 
-            if (mode == InstallMode.Crystal || mode == InstallMode.Full || mode == InstallMode.SemiFull || mode == InstallMode.TekFarma)
+            if (mode == InstallMode.Crystal || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
                 AddRelease(plan, "CRRuntime_32bit_13_0_39.msi");
                 AddRelease(plan, "crdb_adoplus.zip");
             }
 
-            if (mode == InstallMode.Full || mode == InstallMode.TekFarma)
+            if (mode == InstallMode.Crystal || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
                 AddRelease(plan, "dotnet48.exe");
-                AddRelease(plan, "VC_redist.x86.exe");
-                AddRelease(plan, "VC_redist.x64.exe");
-            }
-
-            if (mode == InstallMode.Crystal)
-            {
                 AddRelease(plan, "VC_redist.x86.exe");
                 AddRelease(plan, "VC_redist.x64.exe");
             }
@@ -625,7 +636,7 @@ namespace TekFarmaInstaller
                 AddRelease(plan, "DLLS.zip");
             }
 
-            if (mode == InstallMode.Versao || mode == InstallMode.Full || mode == InstallMode.SemiFull || (mode == InstallMode.TekFarma && perfilTek == "servidor"))
+            if (mode == InstallMode.Versao || mode == InstallMode.Full || (mode == InstallMode.TekFarma && perfilTek == "servidor"))
             {
                 if (tipoVersao == "normal")
                 {
@@ -668,7 +679,6 @@ namespace TekFarmaInstaller
             if (mode == InstallMode.Versao) return "1";
             if (mode == InstallMode.Crystal) return "2";
             if (mode == InstallMode.Full) return "3";
-            if (mode == InstallMode.SemiFull) return "4";
             return "1";
         }
 
@@ -875,7 +885,6 @@ namespace TekFarmaInstaller
         Versao,
         Crystal,
         Full,
-        SemiFull,
         TekFarma
     }
 
