@@ -69,6 +69,8 @@ namespace TekSoftwareSuporte
         private ActionOption printerActionOption;
         private ServerMigrationPlan selectedServerMigration;
         private ActionOption serverMigrationActionOption;
+        private SefazTimeZoneOption selectedSefazTimeZone;
+        private ActionOption sefazTlsActionOption;
         private readonly List<string> selectedPrintersToRemove = new List<string>();
         private readonly List<string> selectedPrinterDriversToRemove = new List<string>();
 
@@ -206,6 +208,17 @@ namespace TekSoftwareSuporte
 
             AddSection(actionsPanel, "Certificados", ref y);
             AddAction(actionsPanel, "certificados", "Instalar cadeia de certificado", "Baixa o zip do release e importa .cer, .sst e .p7b em Autoridades Raiz Confiaveis.", ref y);
+            sefazTlsActionOption = AddAction(actionsPanel, "ssltlssefaz", "SSL/TLS 1.2 SEFAZ", "Ativa TLS 1.2, configura .NET/WinHTTP, seleciona UTC, sincroniza hora e testa conexao SEFAZ.", ref y);
+            sefazTlsActionOption.CheckBox.CheckedChanged += delegate
+            {
+                if (sefazTlsActionOption.CheckBox.Checked && selectedSefazTimeZone == null)
+                {
+                    if (!ShowSefazTimeZoneDialog())
+                    {
+                        sefazTlsActionOption.CheckBox.Checked = false;
+                    }
+                }
+            };
 
             AddSection(actionsPanel, "Aplicativos", ref y);
             AddAction(actionsPanel, "firewall", "Adicionar excecao no firewall", "Executa os BATs e cria regras para executaveis TekSoftware encontrados.", ref y);
@@ -668,6 +681,29 @@ namespace TekSoftwareSuporte
             return false;
         }
 
+        private bool ShowSefazTimeZoneDialog()
+        {
+            using (SefazTimeZoneDialog dialog = new SefazTimeZoneDialog(selectedSefazTimeZone))
+            {
+                DialogResult result = dialog.ShowDialog(this);
+
+                if (result == DialogResult.OK && dialog.SelectedOption != null)
+                {
+                    selectedSefazTimeZone = dialog.SelectedOption;
+
+                    if (sefazTlsActionOption != null)
+                    {
+                        sefazTlsActionOption.CheckBox.Checked = true;
+                        toolTip.SetToolTip(sefazTlsActionOption.CheckBox, "Fuso selecionado: " + selectedSefazTimeZone.Label);
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private void UpdateServerMigrationSelectionState()
         {
             bool enabled = serverMigrationActionOption != null && serverMigrationActionOption.CheckBox.Checked;
@@ -794,7 +830,7 @@ namespace TekSoftwareSuporte
                 plan.Downloads.Add(new DownloadItem(BaseUrl + "/Firebird-2.5.9.exe", "Firebird-2.5.9.exe", "Firebird-2.5.9.exe"));
             }
 
-            if (plan.ContainsAction("certificados"))
+            if (plan.ContainsAction("certificados") || plan.ContainsAction("ssltlssefaz"))
             {
                 plan.Downloads.Add(new DownloadItem(BaseUrl + "/CADEIA_CERTIFICADO.zip", "CADEIA_CERTIFICADO.zip", "CADEIA_CERTIFICADO.zip"));
             }
@@ -873,6 +909,21 @@ namespace TekSoftwareSuporte
                 }
             }
 
+            if (plan.ContainsAction("ssltlssefaz"))
+            {
+                if (selectedSefazTimeZone == null)
+                {
+                    if (!ShowSefazTimeZoneDialog())
+                    {
+                        statusLabel.Text = "Selecione o UTC";
+                        currentStepLabel.Text = "SSL/TLS SEFAZ sem UTC selecionado";
+                        return null;
+                    }
+                }
+
+                plan.SefazTimeZone = selectedSefazTimeZone;
+            }
+
             return plan;
         }
 
@@ -935,6 +986,11 @@ namespace TekSoftwareSuporte
                 args += " -TrocaConfigurarRede " + QuoteArgument(plan.ServerMigration.ConfigurarRede ? "true" : "false");
                 args += " -TrocaRenomearReiniciar " + QuoteArgument(plan.ServerMigration.RenomearReiniciar ? "true" : "false");
                 args += " -TrocaExcluirPastas " + QuoteArgument(plan.ServerMigration.ExcluirPastas);
+            }
+
+            if (plan.SefazTimeZone != null)
+            {
+                args += " -SefazTimeZoneId " + QuoteArgument(plan.SefazTimeZone.TimeZoneId);
             }
 
             bg.ReportProgress(CalcPercent(completedUnits, totalUnits), "Executando suporte TekSoftware...");
@@ -1191,6 +1247,7 @@ namespace TekSoftwareSuporte
         public string HostServidor;
         public PrinterDriver PrinterDriver;
         public ServerMigrationPlan ServerMigration;
+        public SefazTimeZoneOption SefazTimeZone;
         public bool CloseWhenServerMigrationFinalCopyEnds;
         public readonly List<string> PrintersToRemove = new List<string>();
         public readonly List<string> PrinterDriversToRemove = new List<string>();
@@ -1234,6 +1291,165 @@ namespace TekSoftwareSuporte
             Url = url;
             FileName = fileName;
             Name = name;
+        }
+    }
+
+    internal sealed class SefazTimeZoneOption
+    {
+        public readonly string Label;
+        public readonly string TimeZoneId;
+
+        public SefazTimeZoneOption(string label, string timeZoneId)
+        {
+            Label = label;
+            TimeZoneId = timeZoneId;
+        }
+
+        public override string ToString()
+        {
+            return Label;
+        }
+    }
+
+    internal sealed class SefazTimeZoneDialog : Form
+    {
+        private readonly Color blue = Color.FromArgb(0, 92, 190);
+        private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
+        private readonly Color border = Color.FromArgb(205, 214, 224);
+        private readonly ListBox timeZoneList = new ListBox();
+        private readonly Button okButton = new Button();
+        private readonly Button cancelButton = new Button();
+
+        public SefazTimeZoneOption SelectedOption { get; private set; }
+
+        public SefazTimeZoneDialog(SefazTimeZoneOption currentOption)
+        {
+            Text = "Selecionar UTC";
+            Width = 600;
+            Height = 360;
+            MinimumSize = new Size(600, 360);
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = Color.White;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+
+            BuildLayout();
+            LoadOptions(currentOption);
+        }
+
+        private void BuildLayout()
+        {
+            Label title = new Label();
+            title.Text = "SSL/TLS 1.2 SEFAZ";
+            title.Left = 24;
+            title.Top = 18;
+            title.Width = 420;
+            title.Height = 34;
+            title.Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point);
+            title.ForeColor = darkBlue;
+            Controls.Add(title);
+
+            Label subtitle = new Label();
+            subtitle.Text = "Selecione o UTC correto do cliente para sincronizar a hora do Windows.";
+            subtitle.Left = 26;
+            subtitle.Top = 58;
+            subtitle.Width = 520;
+            subtitle.Height = 26;
+            subtitle.ForeColor = Color.FromArgb(82, 92, 110);
+            Controls.Add(subtitle);
+
+            timeZoneList.Left = 28;
+            timeZoneList.Top = 98;
+            timeZoneList.Width = 528;
+            timeZoneList.Height = 150;
+            timeZoneList.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular, GraphicsUnit.Point);
+            timeZoneList.BorderStyle = BorderStyle.FixedSingle;
+            timeZoneList.DoubleClick += delegate { ConfirmSelection(); };
+            Controls.Add(timeZoneList);
+
+            Label note = new Label();
+            note.Text = "Geralmente: GO/SC/SP = UTC-3, AM/MT/MS = UTC-4, AC = UTC-5.";
+            note.Left = 28;
+            note.Top = 258;
+            note.Width = 528;
+            note.Height = 24;
+            note.ForeColor = blue;
+            Controls.Add(note);
+
+            okButton.Text = "Salvar";
+            okButton.Left = 354;
+            okButton.Top = 292;
+            okButton.Width = 96;
+            okButton.Height = 36;
+            okButton.FlatStyle = FlatStyle.Flat;
+            okButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
+            okButton.BackColor = Color.FromArgb(0, 104, 210);
+            okButton.ForeColor = Color.White;
+            okButton.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            okButton.Click += delegate { ConfirmSelection(); };
+            Controls.Add(okButton);
+
+            cancelButton.Text = "Cancelar";
+            cancelButton.Left = 460;
+            cancelButton.Top = 292;
+            cancelButton.Width = 96;
+            cancelButton.Height = 36;
+            cancelButton.FlatStyle = FlatStyle.Flat;
+            cancelButton.FlatAppearance.BorderColor = border;
+            cancelButton.BackColor = Color.White;
+            cancelButton.DialogResult = DialogResult.Cancel;
+            Controls.Add(cancelButton);
+
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+        }
+
+        private void LoadOptions(SefazTimeZoneOption currentOption)
+        {
+            SefazTimeZoneOption[] options = new SefazTimeZoneOption[]
+            {
+                new SefazTimeZoneOption("UTC-2 - Fernando de Noronha / ilhas oceanicas", "UTC-02"),
+                new SefazTimeZoneOption("UTC-3 - Brasilia / Goiania / Balneario / maior parte do Brasil", "E. South America Standard Time"),
+                new SefazTimeZoneOption("UTC-4 - Amazonas / Manaus / Rondonia / Roraima / MT / MS", "SA Western Standard Time"),
+                new SefazTimeZoneOption("UTC-5 - Acre / sudoeste do Amazonas", "SA Pacific Standard Time")
+            };
+
+            timeZoneList.Items.AddRange(options);
+
+            int selectedIndex = 1;
+
+            if (currentOption != null)
+            {
+                for (int i = 0; i < timeZoneList.Items.Count; i++)
+                {
+                    SefazTimeZoneOption option = timeZoneList.Items[i] as SefazTimeZoneOption;
+
+                    if (option != null && String.Equals(option.TimeZoneId, currentOption.TimeZoneId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            timeZoneList.SelectedIndex = selectedIndex;
+        }
+
+        private void ConfirmSelection()
+        {
+            SefazTimeZoneOption option = timeZoneList.SelectedItem as SefazTimeZoneOption;
+
+            if (option == null)
+            {
+                MessageBox.Show(this, "Selecione um UTC.", "UTC obrigatorio", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            SelectedOption = option;
+            DialogResult = DialogResult.OK;
+            Close();
         }
     }
 

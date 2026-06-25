@@ -16,7 +16,8 @@ param(
     [string]$TrocaInstalarFirebird = "true",
     [string]$TrocaConfigurarRede = "true",
     [string]$TrocaRenomearReiniciar = "false",
-    [string]$TrocaExcluirPastas = "ArqPrn;Atualizacao;CFe;Documentos;DocumentosFiscais;NFCe;NFe;Sngpc;versao;XML;Xml;xml;SAT;CTe;MDFe"
+    [string]$TrocaExcluirPastas = "ArqPrn;Atualizacao;CFe;Documentos;DocumentosFiscais;NFCe;NFe;Sngpc;versao;XML;Xml;xml;SAT;CTe;MDFe",
+    [string]$SefazTimeZoneId = "E. South America Standard Time"
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,6 +101,26 @@ function Set-Dword {
     }
 
     New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType DWord -Force | Out-Null
+}
+
+function Add-DwordFlag {
+    param(
+        [string]$Path,
+        [string]$Name,
+        [int]$Flag
+    )
+
+    if (!(Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+
+    $Atual = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue).$Name
+
+    if ($null -eq $Atual) {
+        $Atual = 0
+    }
+
+    New-ItemProperty -Path $Path -Name $Name -Value ([int]$Atual -bor $Flag) -PropertyType DWord -Force | Out-Null
 }
 
 function NormalizarCaminho {
@@ -449,6 +470,200 @@ function InstalarCadeiaCertificado {
             LogMsg "AVISO: Falha ao limpar pasta temporaria de certificados: $($_.Exception.Message)"
         }
     }
+}
+
+function ResolverTimeZoneSefaz {
+    param([string]$Valor)
+
+    $ValorNormalizado = ""
+
+    if ($null -ne $Valor) {
+        $ValorNormalizado = $Valor.Trim()
+    }
+
+    switch -Regex ($ValorNormalizado) {
+        "^(UTC)?-?2$|^UTC-02$" { return "UTC-02" }
+        "^(UTC)?-?3$|^UTC-03$" { return "E. South America Standard Time" }
+        "^(UTC)?-?4$|^UTC-04$" { return "SA Western Standard Time" }
+        "^(UTC)?-?5$|^UTC-05$" { return "SA Pacific Standard Time" }
+    }
+
+    if (![string]::IsNullOrWhiteSpace($ValorNormalizado)) {
+        $Encontrado = Get-TimeZone -ListAvailable | Where-Object { $_.Id -ieq $ValorNormalizado } | Select-Object -First 1
+
+        if ($Encontrado) {
+            return $Encontrado.Id
+        }
+    }
+
+    return "E. South America Standard Time"
+}
+
+function ConfigurarTimeZoneSefaz {
+    $IdDesejado = ResolverTimeZoneSefaz -Valor $SefazTimeZoneId
+    $Antes = Get-TimeZone
+
+    LogMsg "Timezone atual: $($Antes.Id) - $($Antes.DisplayName)"
+    LogMsg "Timezone selecionado para SEFAZ: $IdDesejado"
+
+    if ($Antes.Id -ieq $IdDesejado) {
+        LogMsg "Timezone ja esta correto. Nenhuma alteracao necessaria."
+        return
+    }
+
+    try {
+        Set-TimeZone -Id $IdDesejado -ErrorAction Stop
+        $Depois = Get-TimeZone
+        LogMsg "Timezone alterado para: $($Depois.Id) - $($Depois.DisplayName)"
+    }
+    catch {
+        LogMsg "AVISO: Falha ao alterar timezone para ${IdDesejado}: $($_.Exception.Message)"
+        throw
+    }
+}
+
+function ConfigurarTls12Sefaz {
+    LogMsg "Configurando TLS 1.2 para SChannel, .NET e WinHTTP."
+
+    foreach ($Role in @("Client", "Server")) {
+        $Path = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\$Role"
+        Set-Dword -Path $Path -Name "Enabled" -Value 1
+        Set-Dword -Path $Path -Name "DisabledByDefault" -Value 0
+        LogMsg "SChannel TLS 1.2 $Role habilitado."
+    }
+
+    foreach ($Path in @(
+        "HKLM:\SOFTWARE\Microsoft\.NETFramework\v2.0.50727",
+        "HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v2.0.50727",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v4.0.30319"
+    )) {
+        Set-Dword -Path $Path -Name "SchUseStrongCrypto" -Value 1
+        Set-Dword -Path $Path -Name "SystemDefaultTlsVersions" -Value 1
+        LogMsg ".NET strong crypto aplicado: $Path"
+    }
+
+    foreach ($Path in @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp"
+    )) {
+        Add-DwordFlag -Path $Path -Name "DefaultSecureProtocols" -Flag 0x800
+        LogMsg "WinHTTP DefaultSecureProtocols inclui TLS 1.2: $Path"
+    }
+
+    foreach ($Path in @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings"
+    )) {
+        Add-DwordFlag -Path $Path -Name "SecureProtocols" -Flag 0x800
+        LogMsg "Internet Settings SecureProtocols inclui TLS 1.2: $Path"
+    }
+}
+
+function SincronizarHoraSefaz {
+    try {
+        Set-Service -Name W32Time -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name W32Time -ErrorAction SilentlyContinue
+        LogMsg "Servico W32Time iniciado/configurado como automatico."
+    }
+    catch {
+        LogMsg "AVISO: Falha ao iniciar W32Time: $($_.Exception.Message)"
+    }
+
+    $Peers = "a.st1.ntp.br,0x8 b.st1.ntp.br,0x8 c.st1.ntp.br,0x8 time.windows.com,0x8"
+
+    try {
+        $SaidaConfig = & w32tm.exe /config /manualpeerlist:$Peers /syncfromflags:manual /reliable:no /update 2>&1
+        foreach ($Linha in @($SaidaConfig)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "W32TM config: $Linha"
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao configurar NTP: $($_.Exception.Message)"
+    }
+
+    try {
+        $SaidaResync = & w32tm.exe /resync /force 2>&1
+        foreach ($Linha in @($SaidaResync)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "W32TM resync: $Linha"
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao sincronizar hora: $($_.Exception.Message)"
+    }
+
+    try {
+        $SaidaStatus = & w32tm.exe /query /status 2>&1
+        foreach ($Linha in @($SaidaStatus)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "W32TM status: $Linha"
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar status W32Time: $($_.Exception.Message)"
+    }
+
+    LogMsg "Data/hora local apos sincronizacao: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')"
+}
+
+function VerificarCertificadosClienteSefaz {
+    $Agora = Get-Date
+    $Certificados = @()
+
+    foreach ($StorePath in @("Cert:\CurrentUser\My", "Cert:\LocalMachine\My")) {
+        try {
+            $Certificados += @(Get-ChildItem -Path $StorePath -ErrorAction SilentlyContinue | Where-Object {
+                $_.HasPrivateKey -and
+                $_.NotAfter -gt $Agora -and
+                (
+                    $_.EnhancedKeyUsageList.Count -eq 0 -or
+                    ($_.EnhancedKeyUsageList | Where-Object { $_.ObjectId -eq "1.3.6.1.5.5.7.3.2" -or $_.FriendlyName -match "Client|Cliente" })
+                )
+            })
+        }
+        catch {
+            LogMsg "AVISO: Falha ao verificar certificados em ${StorePath}: $($_.Exception.Message)"
+        }
+    }
+
+    if ($Certificados.Count -eq 0) {
+        LogMsg "AVISO: Nenhum certificado cliente valido com chave privada foi localizado."
+        return
+    }
+
+    LogMsg "Certificados cliente validos encontrados: $($Certificados.Count)"
+
+    foreach ($Cert in @($Certificados | Sort-Object NotAfter -Descending | Select-Object -First 5)) {
+        LogMsg "Certificado: Subject='$($Cert.Subject)' Vence=$($Cert.NotAfter.ToString('yyyy-MM-dd')) Thumbprint=$($Cert.Thumbprint)"
+    }
+}
+
+function TestarConexaoSefazTls12 {
+    $UrlTeste = "https://www.nfe.fazenda.gov.br/portal/"
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $Resposta = Invoke-WebRequest -UseBasicParsing -Uri $UrlTeste -TimeoutSec 30 -ErrorAction Stop
+        LogMsg "Teste HTTPS SEFAZ OK: $UrlTeste StatusCode=$($Resposta.StatusCode)"
+    }
+    catch {
+        LogMsg "AVISO: Teste HTTPS SEFAZ falhou: $($_.Exception.Message)"
+    }
+}
+
+function ConfigurarSslTlsSefaz {
+    ConfigurarTimeZoneSefaz
+    SincronizarHoraSefaz
+    ConfigurarTls12Sefaz
+    InstalarCadeiaCertificado
+    VerificarCertificadosClienteSefaz
+    TestarConexaoSefazTls12
+    LogMsg "Procedimento SSL/TLS 1.2 SEFAZ finalizado."
 }
 
 function BaixarGbasSeNecessario {
@@ -3095,6 +3310,9 @@ if (![string]::IsNullOrWhiteSpace($ImpressoraArquivo)) {
 if (![string]::IsNullOrWhiteSpace($TrocaPerfil)) {
     LogMsg "Troca de servidor recebida: perfil=$TrocaPerfil hostAntigo=$TrocaHostAntigo versao=$TrocaTipoVersao"
 }
+if ($Acoes -match "(?i)ssltlssefaz") {
+    LogMsg "UTC/Timezone SEFAZ recebido: $SefazTimeZoneId"
+}
 LogMsg "Base: $Base"
 
 $script:ExecutandoComoAdmin = Test-Admin
@@ -3117,6 +3335,11 @@ foreach ($Acao in $ListaAcoes) {
         "certificados" {
             ExecutarPassoAdmin "Instalar cadeia de certificado" {
                 InstalarCadeiaCertificado
+            }
+        }
+        "ssltlssefaz" {
+            ExecutarPassoAdmin "SSL/TLS 1.2 SEFAZ" {
+                ConfigurarSslTlsSefaz
             }
         }
         "mapear" {
