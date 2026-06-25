@@ -210,14 +210,36 @@ function CriarCredencialServidor {
     LogMsg "Credencial do Windows configurada: host=$HostCredencial usuario=$UsuarioCredencial senha=vazia"
 }
 
+function ObterHostCredencial {
+    param([string]$Valor)
+
+    if ([string]::IsNullOrWhiteSpace($Valor)) {
+        return ""
+    }
+
+    $Limpo = $Valor.Trim()
+
+    if ($Limpo -match "^\\\\([^\\]+)") {
+        return $Matches[1].Trim()
+    }
+
+    $Limpo = $Limpo.Trim("\")
+
+    if ($Limpo.Contains("\")) {
+        return (($Limpo -split "\\") | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -First 1).Trim()
+    }
+
+    return $Limpo.Trim()
+}
+
 function CriarCredencialConvidadoParaHost {
     param([string]$HostCredencial)
+
+    $HostCredencial = ObterHostCredencial -Valor $HostCredencial
 
     if ([string]::IsNullOrWhiteSpace($HostCredencial)) {
         return
     }
-
-    $HostCredencial = $HostCredencial.Trim("\").Trim()
 
     try {
         LogMsg "Configurando credencial convidado para ${HostCredencial}."
@@ -227,6 +249,68 @@ function CriarCredencialConvidadoParaHost {
     }
     catch {
         LogMsg "AVISO: Falha ao configurar credencial para ${HostCredencial}: $($_.Exception.Message)"
+    }
+}
+
+function CriarCredencialConvidadoParaHostUsuario {
+    param([string]$HostCredencial)
+
+    $HostCredencial = ObterHostCredencial -Valor $HostCredencial
+
+    if ([string]::IsNullOrWhiteSpace($HostCredencial)) {
+        return
+    }
+
+    try {
+        LogMsg "Configurando credencial convidado para ${HostCredencial} no shell do usuario."
+        $Resultado = ExecutarCmdShellUsuarioComTimeout -Comandos @(
+            "cmdkey.exe /delete:$HostCredencial >nul 2>nul",
+            "echo.|cmdkey.exe /add:$HostCredencial /user:convidado",
+            "exit /b 0"
+        ) -TimeoutSegundos 8
+
+        foreach ($Linha in @($Resultado.Output)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "CMDKEY: $Linha"
+            }
+        }
+
+        if ($Resultado.TimedOut) {
+            LogMsg "AVISO: Cmdkey para ${HostCredencial} excedeu o tempo limite no shell do usuario."
+        }
+        elseif ($Resultado.ExitCode -eq 0) {
+            LogMsg "Credencial do usuario configurada para ${HostCredencial}: usuario=convidado senha=vazia"
+        }
+        else {
+            LogMsg "AVISO: Cmdkey para ${HostCredencial} retornou codigo $($Resultado.ExitCode) no shell do usuario."
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao configurar credencial do usuario para ${HostCredencial}: $($_.Exception.Message)"
+    }
+}
+
+function CriarCredenciaisConvidadoParaHosts {
+    param([string[]]$Hosts)
+
+    $Vistos = @{}
+
+    foreach ($HostItem in @($Hosts)) {
+        $HostCredencial = ObterHostCredencial -Valor $HostItem
+
+        if ([string]::IsNullOrWhiteSpace($HostCredencial)) {
+            continue
+        }
+
+        $Chave = $HostCredencial.ToUpperInvariant()
+
+        if ($Vistos.ContainsKey($Chave)) {
+            continue
+        }
+
+        $Vistos[$Chave] = $true
+        CriarCredencialConvidadoParaHost -HostCredencial $HostCredencial
+        CriarCredencialConvidadoParaHostUsuario -HostCredencial $HostCredencial
     }
 }
 
@@ -949,6 +1033,199 @@ function ObterPastaPublicaSuporte {
     return $Pasta
 }
 
+function GarantirTipoNativeProcess {
+    if (([System.Management.Automation.PSTypeName]"TekSoftware.NativeProcess").Type) {
+        return
+    }
+
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace TekSoftware
+{
+    public static class NativeProcess
+    {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr OpenProcess(UInt32 dwDesiredAccess, bool bInheritHandle, UInt32 dwProcessId);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern bool OpenProcessToken(IntPtr ProcessHandle, UInt32 DesiredAccess, out IntPtr TokenHandle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern bool DuplicateTokenEx(
+            IntPtr hExistingToken,
+            UInt32 dwDesiredAccess,
+            IntPtr lpTokenAttributes,
+            Int32 ImpersonationLevel,
+            Int32 TokenType,
+            out IntPtr phNewToken);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool CreateProcessWithTokenW(
+            IntPtr hToken,
+            UInt32 dwLogonFlags,
+            string lpApplicationName,
+            string lpCommandLine,
+            UInt32 dwCreationFlags,
+            IntPtr lpEnvironment,
+            string lpCurrentDirectory,
+            ref STARTUPINFO lpStartupInfo,
+            out PROCESS_INFORMATION lpProcessInformation);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct STARTUPINFO
+        {
+            public UInt32 cb;
+            public string lpReserved;
+            public string lpDesktop;
+            public string lpTitle;
+            public UInt32 dwX;
+            public UInt32 dwY;
+            public UInt32 dwXSize;
+            public UInt32 dwYSize;
+            public UInt32 dwXCountChars;
+            public UInt32 dwYCountChars;
+            public UInt32 dwFillAttribute;
+            public UInt32 dwFlags;
+            public UInt16 wShowWindow;
+            public UInt16 cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public UInt32 dwProcessId;
+            public UInt32 dwThreadId;
+        }
+    }
+}
+'@
+}
+
+function ObterExplorerUsuarioAtual {
+    $UsuarioAtual = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+    try {
+        $Processos = @(Get-CimInstance Win32_Process -Filter "name='explorer.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+            $Processo = $_
+            $Owner = Invoke-CimMethod -InputObject $Processo -MethodName GetOwner -ErrorAction SilentlyContinue
+
+            if ($Owner -and "$($Owner.Domain)\$($Owner.User)" -ieq $UsuarioAtual) {
+                $Processo
+            }
+        })
+
+        return @($Processos | Sort-Object ProcessId -Descending | Select-Object -First 1)
+    }
+    catch {
+        LogMsg "AVISO: Falha ao localizar Explorer do usuario: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+function IniciarCmdComTokenExplorer {
+    param([string]$CmdPath)
+
+    $Explorer = @(ObterExplorerUsuarioAtual | Select-Object -First 1)
+
+    if ($Explorer.Count -eq 0 -or $null -eq $Explorer[0]) {
+        return $false
+    }
+
+    GarantirTipoNativeProcess
+
+    $ProcessHandle = [IntPtr]::Zero
+    $TokenHandle = [IntPtr]::Zero
+    $DuplicatedToken = [IntPtr]::Zero
+    $ProcessInfo = New-Object TekSoftware.NativeProcess+PROCESS_INFORMATION
+
+    try {
+        $ProcessId = [uint32]$Explorer[0].ProcessId
+        $ProcessHandle = [TekSoftware.NativeProcess]::OpenProcess(0x1000, $false, $ProcessId)
+
+        if ($ProcessHandle -eq [IntPtr]::Zero) {
+            $ProcessHandle = [TekSoftware.NativeProcess]::OpenProcess(0x0400, $false, $ProcessId)
+        }
+
+        if ($ProcessHandle -eq [IntPtr]::Zero) {
+            LogMsg "AVISO: Nao foi possivel abrir o token do Explorer. Erro Win32: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+            return $false
+        }
+
+        $TokenAccess = [uint32]0x0000018F
+
+        if (-not [TekSoftware.NativeProcess]::OpenProcessToken($ProcessHandle, $TokenAccess, [ref]$TokenHandle)) {
+            LogMsg "AVISO: Nao foi possivel abrir o token do Explorer. Erro Win32: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+            return $false
+        }
+
+        if (-not [TekSoftware.NativeProcess]::DuplicateTokenEx($TokenHandle, $TokenAccess, [IntPtr]::Zero, 2, 1, [ref]$DuplicatedToken)) {
+            LogMsg "AVISO: Nao foi possivel duplicar o token do Explorer. Erro Win32: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+            return $false
+        }
+
+        $StartupInfo = New-Object TekSoftware.NativeProcess+STARTUPINFO
+        $StartupInfo.cb = [uint32][Runtime.InteropServices.Marshal]::SizeOf($StartupInfo)
+        $StartupInfo.lpDesktop = "winsta0\default"
+        $StartupInfo.dwFlags = 1
+        $StartupInfo.wShowWindow = 0
+
+        $CmdExe = Join-Path $env:WINDIR "System32\cmd.exe"
+        $CommandLine = "`"$CmdExe`" /c `"$CmdPath`""
+        $WorkingDirectory = Split-Path -Parent $CmdPath
+
+        $Criado = [TekSoftware.NativeProcess]::CreateProcessWithTokenW(
+            $DuplicatedToken,
+            1,
+            $CmdExe,
+            $CommandLine,
+            0x08000000,
+            [IntPtr]::Zero,
+            $WorkingDirectory,
+            [ref]$StartupInfo,
+            [ref]$ProcessInfo
+        )
+
+        if (-not $Criado) {
+            LogMsg "AVISO: Nao foi possivel executar cmd com token do Explorer. Erro Win32: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+            return $false
+        }
+
+        return $true
+    }
+    finally {
+        if ($ProcessInfo.hThread -ne [IntPtr]::Zero) {
+            [void][TekSoftware.NativeProcess]::CloseHandle($ProcessInfo.hThread)
+        }
+
+        if ($ProcessInfo.hProcess -ne [IntPtr]::Zero) {
+            [void][TekSoftware.NativeProcess]::CloseHandle($ProcessInfo.hProcess)
+        }
+
+        if ($DuplicatedToken -ne [IntPtr]::Zero) {
+            [void][TekSoftware.NativeProcess]::CloseHandle($DuplicatedToken)
+        }
+
+        if ($TokenHandle -ne [IntPtr]::Zero) {
+            [void][TekSoftware.NativeProcess]::CloseHandle($TokenHandle)
+        }
+
+        if ($ProcessHandle -ne [IntPtr]::Zero) {
+            [void][TekSoftware.NativeProcess]::CloseHandle($ProcessHandle)
+        }
+    }
+}
+
 function ExecutarCmdShellUsuarioComTimeout {
     param(
         [string[]]$Comandos,
@@ -966,7 +1243,7 @@ function ExecutarCmdShellUsuarioComTimeout {
         "setlocal EnableExtensions",
         "chcp 65001 >nul",
         "call :main > `"$OutPath`" 2>&1",
-        "echo %ERRORLEVEL%> `"$ExitPath`"",
+        "echo %ERRORLEVEL% > `"$ExitPath`"",
         "exit /b %ERRORLEVEL%",
         ":main"
     ) + $Comandos + @(
@@ -976,8 +1253,12 @@ function ExecutarCmdShellUsuarioComTimeout {
     Set-Content -LiteralPath $CmdPath -Value $Conteudo -Encoding ASCII -Force
 
     try {
-        $Shell = New-Object -ComObject Shell.Application
-        $Shell.ShellExecute("cmd.exe", "/c `"$CmdPath`"", "", "open", 0)
+        $Iniciado = IniciarCmdComTokenExplorer -CmdPath $CmdPath
+
+        if (-not $Iniciado) {
+            $Shell = New-Object -ComObject Shell.Application
+            $Shell.ShellExecute("cmd.exe", "/c `"$CmdPath`"", "", "open", 0)
+        }
     }
     catch {
         Remove-Item -LiteralPath $CmdPath, $OutPath, $ExitPath -Force -ErrorAction SilentlyContinue
@@ -1186,9 +1467,10 @@ function MapearDriveNoShellUsuario {
     )
 
     $Comandos = @()
+    $HostRede = ObterHostCredencial -Valor $HostRede
 
     if (![string]::IsNullOrWhiteSpace($HostRede)) {
-        $Comandos += "cmdkey.exe /delete:$HostRede"
+        $Comandos += "cmdkey.exe /delete:$HostRede >nul 2>nul"
         $Comandos += "echo.|cmdkey.exe /add:$HostRede /user:convidado"
     }
 
@@ -1495,12 +1777,19 @@ function ObterHostDeCaminhoRede {
 function MapearTekSoftware {
     param([string]$HostInformado)
 
+    $HostInicial = ObterHostCredencial -Valor $HostInformado
+
+    if ([string]::IsNullOrWhiteSpace($HostInicial)) {
+        $HostInicial = "SERVIDOR"
+    }
+
     HabilitarMapeamentoElevadoNoExplorer
+    CriarCredenciaisConvidadoParaHosts -Hosts @($HostInicial)
     RemoverMapeamentosTekSoftware
 
     foreach ($CaminhoRede in @(ObterCandidatosRedeTekSoftware -HostInformado $HostInformado)) {
         $HostRede = ObterHostDeCaminhoRede -CaminhoRede $CaminhoRede
-        CriarCredencialConvidadoParaHost -HostCredencial $HostRede
+        CriarCredenciaisConvidadoParaHosts -Hosts @($HostInicial, $HostRede)
 
         LogMsg "Candidato de rede: $CaminhoRede"
 
