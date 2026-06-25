@@ -16,7 +16,7 @@ param(
     [string]$TrocaInstalarFirebird = "true",
     [string]$TrocaConfigurarRede = "true",
     [string]$TrocaRenomearReiniciar = "false",
-    [string]$TrocaExcluirPastas = "XML;Xml;xml;NFe;NFCe;SAT;CTe;MDFe"
+    [string]$TrocaExcluirPastas = "ArqPrn;Atualizacao;CFe;Documentos;DocumentosFiscais;NFCe;NFe;Sngpc;versao;XML;Xml;xml;SAT;CTe;MDFe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -2435,7 +2435,7 @@ function ReinstalarFirebird {
 function ConverterTextoBooleano {
     param([string]$Valor)
 
-    return $Valor -match "^(?i)(1|true|sim|yes|y|s)$"
+    return $Valor -match "(?i)^(1|true|sim|yes|y|s)$"
 }
 
 function ObterOrigemTekSoftwareTroca {
@@ -2467,7 +2467,15 @@ function ObterPastasExclusaoTroca {
         return @()
     }
 
-    @($TrocaExcluirPastas -split "[,;]" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $Pastas = @($TrocaExcluirPastas -split "[,;]" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+    foreach ($Pasta in @($Pastas)) {
+        if ($Pasta -ieq "Atualizacao") {
+            $Pastas += ("Atualiza" + [char]0x00E7 + [char]0x00E3 + "o")
+        }
+    }
+
+    @($Pastas | Select-Object -Unique)
 }
 
 function ExecutarRobocopyTroca {
@@ -2598,6 +2606,267 @@ function RenomearComputadorTroca {
     shutdown.exe /r /t 60 /c "Troca de servidor TekSoftware: reinicio necessario para aplicar nome $NovoNome." | Out-Null
 }
 
+function EscaparTextoScriptTroca {
+    param([string]$Texto)
+
+    if ($null -eq $Texto) {
+        return ""
+    }
+
+    return (($Texto -replace '`', '``') -replace '"', '`"')
+}
+
+function CriarScriptCopiaFinalTrocaServidor {
+    param(
+        [string]$OrigemFinal,
+        [string[]]$Pastas
+    )
+
+    $DiretorioTroca = Join-Path $RaizTekSoftware "_troca_servidor"
+    New-Item -ItemType Directory -Path $DiretorioTroca -Force | Out-Null
+
+    $ScriptFinal = Join-Path $DiretorioTroca "copia_final_troca_servidor.ps1"
+    $PastasUnicas = @($Pastas | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+
+    if ($PastasUnicas.Count -eq 0) {
+        $PastasUnicas = @("NFe", "NFCe")
+    }
+
+    $PastasJson = $PastasUnicas | ConvertTo-Json -Compress
+    $TaskNames = @(
+        "TekSoftware Troca Servidor Copia Final Startup",
+        "TekSoftware Troca Servidor Copia Final Logon"
+    )
+    $TaskNamesJson = $TaskNames | ConvertTo-Json -Compress
+
+    $Template = @'
+$ErrorActionPreference = "Continue"
+
+$Origem = "__ORIGEM_FINAL__"
+$Destino = "__DESTINO_FINAL__"
+$BaseDir = "__BASE_DIR__"
+$HostOrigem = ""
+
+if ($Origem -match '^\\\\([^\\]+)\\') {
+    $HostOrigem = $Matches[1]
+}
+
+$Pastas = @(ConvertFrom-Json @"
+__PASTAS_JSON__
+"@)
+$TaskNames = @(ConvertFrom-Json @"
+__TASKS_JSON__
+"@)
+
+New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
+
+$Log = Join-Path $BaseDir "copia_final_troca_servidor.log"
+$Done = Join-Path $BaseDir "copia_final_concluida.ok"
+$LockPath = Join-Path $BaseDir "copia_final.lock"
+
+function LogFinal {
+    param([string]$Texto)
+
+    $Linha = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Texto"
+    Add-Content -Path $Log -Value $Linha
+}
+
+function RemoverTarefasAgendadas {
+    foreach ($TaskName in @($TaskNames)) {
+        try {
+            schtasks.exe /Delete /TN $TaskName /F 2>&1 | Out-Null
+        }
+        catch {
+        }
+    }
+}
+
+function ConfigurarCredencialOrigem {
+    if ([string]::IsNullOrWhiteSpace($HostOrigem)) {
+        return
+    }
+
+    try {
+        LogFinal "Configurando credencial convidado para $HostOrigem."
+        cmdkey.exe /delete:$HostOrigem 2>&1 | Out-Null
+        cmdkey.exe /add:$HostOrigem /user:convidado /pass:"" 2>&1 | Out-Null
+    }
+    catch {
+        LogFinal "AVISO: falha ao configurar cmdkey para ${HostOrigem}: $($_.Exception.Message)"
+    }
+
+    try {
+        net.exe use $Origem /delete /y 2>&1 | Out-Null
+    }
+    catch {
+    }
+
+    try {
+        net.exe use $Origem /user:convidado "" /persistent:no 2>&1 | Out-Null
+        LogFinal "Conexao de rede preparada para $Origem."
+    }
+    catch {
+        LogFinal "AVISO: falha ao preparar net use para ${Origem}: $($_.Exception.Message)"
+    }
+}
+
+if (Test-Path $Done) {
+    LogFinal "Copia final ja estava marcada como concluida. Removendo tarefas agendadas."
+    RemoverTarefasAgendadas
+    exit 0
+}
+
+$Lock = $null
+
+try {
+    try {
+        $Lock = [System.IO.File]::Open($LockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    }
+    catch {
+        LogFinal "Outra execucao da copia final ja esta em andamento."
+        exit 0
+    }
+
+    LogFinal "Iniciando copia final de troca de servidor."
+    LogFinal "Origem: $Origem"
+    LogFinal "Destino: $Destino"
+    LogFinal "Pastas finais: $($Pastas -join ', ')"
+
+    ConfigurarCredencialOrigem
+
+    $OrigemDisponivel = $false
+
+    for ($i = 1; $i -le 60; $i++) {
+        if (Test-Path $Origem) {
+            $OrigemDisponivel = $true
+            break
+        }
+
+        LogFinal "Aguardando origem ficar disponivel ($i/60): $Origem"
+        Start-Sleep -Seconds 10
+    }
+
+    if (!$OrigemDisponivel) {
+        LogFinal "ERRO: origem nao ficou disponivel. A tarefa tentara novamente no proximo inicio/logon."
+        exit 1
+    }
+
+    New-Item -ItemType Directory -Path $Destino -Force | Out-Null
+
+    $Falhas = 0
+
+    foreach ($Pasta in @($Pastas | Select-Object -Unique)) {
+        if ([string]::IsNullOrWhiteSpace($Pasta)) {
+            continue
+        }
+
+        $OrigemPastaTekFarma = Join-Path (Join-Path $Origem "TekFarma") $Pasta
+        $DestinoPastaTekFarma = Join-Path (Join-Path $Destino "TekFarma") $Pasta
+        $OrigemPasta = Join-Path $Origem $Pasta
+        $DestinoPasta = Join-Path $Destino $Pasta
+
+        if (Test-Path $OrigemPastaTekFarma) {
+            $OrigemPasta = $OrigemPastaTekFarma
+            $DestinoPasta = $DestinoPastaTekFarma
+        }
+
+        if (!(Test-Path $OrigemPasta)) {
+            LogFinal "AVISO: pasta final nao encontrada na origem: $OrigemPasta"
+            continue
+        }
+
+        New-Item -ItemType Directory -Path $DestinoPasta -Force | Out-Null
+        $NomeLogSeguro = $Pasta -replace '[\\/:*?"<>|]', '_'
+        $RoboLog = Join-Path $BaseDir "robocopy_final_$NomeLogSeguro.log"
+
+        LogFinal "Copiando pasta final: $Pasta"
+        robocopy.exe $OrigemPasta $DestinoPasta /E /Z /R:3 /W:5 /MT:16 /NP /TEE /LOG+:$RoboLog | Out-Null
+        $Codigo = $LASTEXITCODE
+        LogFinal "Robocopy $Pasta finalizado com codigo $Codigo. Log: $RoboLog"
+
+        if ($Codigo -gt 7) {
+            $Falhas++
+        }
+    }
+
+    if ($Falhas -gt 0) {
+        LogFinal "Copia final terminou com $Falhas falha(s). A tarefa tentara novamente no proximo inicio/logon."
+        exit 1
+    }
+
+    New-Item -ItemType File -Path $Done -Force | Out-Null
+    LogFinal "Copia final concluida com sucesso."
+    RemoverTarefasAgendadas
+    exit 0
+}
+catch {
+    LogFinal "ERRO inesperado na copia final: $($_.Exception.Message)"
+    exit 1
+}
+finally {
+    if ($Lock) {
+        $Lock.Close()
+    }
+
+    Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
+}
+'@
+
+    $Conteudo = $Template.
+        Replace("__ORIGEM_FINAL__", (EscaparTextoScriptTroca $OrigemFinal)).
+        Replace("__DESTINO_FINAL__", (EscaparTextoScriptTroca $RaizTekSoftware)).
+        Replace("__BASE_DIR__", (EscaparTextoScriptTroca $DiretorioTroca)).
+        Replace("__PASTAS_JSON__", $PastasJson).
+        Replace("__TASKS_JSON__", $TaskNamesJson)
+
+    Set-Content -LiteralPath $ScriptFinal -Value $Conteudo -Encoding UTF8 -Force
+    return $ScriptFinal
+}
+
+function AgendarCopiaFinalTrocaServidor {
+    param(
+        [string]$OrigemFinal,
+        [string[]]$Pastas
+    )
+
+    $ScriptFinal = CriarScriptCopiaFinalTrocaServidor -OrigemFinal $OrigemFinal -Pastas $Pastas
+    $TaskStartup = "TekSoftware Troca Servidor Copia Final Startup"
+    $TaskLogon = "TekSoftware Troca Servidor Copia Final Logon"
+    $TaskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ScriptFinal`""
+
+    foreach ($TaskName in @($TaskStartup, $TaskLogon)) {
+        schtasks.exe /Delete /TN $TaskName /F 2>&1 | Out-Null
+    }
+
+    LogMsg "Script persistente da copia final criado: $ScriptFinal"
+    LogMsg "Origem final agendada: $OrigemFinal"
+    LogMsg "Pastas finais agendadas: $($Pastas -join ', ')"
+
+    $SaidaStartup = & schtasks.exe /Create /TN $TaskStartup /SC ONSTART /RU SYSTEM /RL HIGHEST /TR $TaskCommand /F 2>&1
+    $CodigoStartup = $LASTEXITCODE
+
+    foreach ($Linha in @($SaidaStartup)) {
+        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+            LogMsg "SCHTASKS startup: $Linha"
+        }
+    }
+
+    $SaidaLogon = & schtasks.exe /Create /TN $TaskLogon /SC ONLOGON /RL HIGHEST /TR $TaskCommand /F 2>&1
+    $CodigoLogon = $LASTEXITCODE
+
+    foreach ($Linha in @($SaidaLogon)) {
+        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+            LogMsg "SCHTASKS logon: $Linha"
+        }
+    }
+
+    if ($CodigoStartup -ne 0 -and $CodigoLogon -ne 0) {
+        throw "Nao foi possivel criar tarefa agendada para copia final."
+    }
+
+    LogMsg "Copia final agendada. Ela tentara copiar as pastas finais no proximo inicio do Windows/logon."
+}
+
 function ExecutarTrocaServidor {
     $Perfil = $TrocaPerfil.Trim().ToLowerInvariant()
 
@@ -2635,19 +2904,19 @@ function ExecutarTrocaServidor {
             }
         }
 
+        if (ConverterTextoBooleano $TrocaCopiarFinal) {
+            ExecutarPasso "Agendar copia final apos reinicio" {
+                AgendarCopiaFinalTrocaServidor -OrigemFinal "\\ANTIGO\TekSoftware" -Pastas @(ObterPastasExclusaoTroca)
+            }
+        }
+
         if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
-            LogMsg "Renomeacao/reinicio selecionados. Se precisar de copia final/XML, rode novamente apos reiniciar."
+            LogMsg "Renomeacao/reinicio selecionados. Se a copia final foi marcada, ela ja ficou agendada para o proximo inicio/logon."
             RenomearComputadorTroca -NovoNome "SERVIDOR"
             return
         }
 
-        if (ConverterTextoBooleano $TrocaCopiarFinal) {
-            ExecutarPasso "Copia final TekSoftware/pastas XML" {
-                ExecutarRobocopyTroca -Nome "Copia final TekSoftware" -Origem $Origem -Destino $RaizTekSoftware
-            }
-        }
-
-        LogMsg "Troca do novo servidor processada. Fluxo humano: confirme os terminais e rode a copia final/XML se ainda estiver pendente."
+        LogMsg "Troca do novo servidor processada. Fluxo humano: confirme os terminais e acompanhe a copia final agendada se ela foi marcada."
         return
     }
 
@@ -2659,10 +2928,10 @@ function ExecutarTrocaServidor {
         }
 
         if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
-            RenomearComputadorTroca -NovoNome "OLD"
+            RenomearComputadorTroca -NovoNome "ANTIGO"
         }
         else {
-            LogMsg "Renomeacao para OLD nao selecionada."
+            LogMsg "Renomeacao para ANTIGO nao selecionada."
         }
 
         return

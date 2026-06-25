@@ -1237,6 +1237,8 @@ namespace TekSoftwareSuporte
 
     internal sealed class ServerMigrationPlan
     {
+        public const string DefaultFinalFolders = "ArqPrn;Atualizacao;CFe;Documentos;DocumentosFiscais;NFCe;NFe;Sngpc;versao;XML;Xml;xml;SAT;CTe;MDFe";
+
         public bool IsNovoServidor;
         public string HostAntigo = "SERVIDOR";
         public string TipoVersao = "normal";
@@ -1246,7 +1248,7 @@ namespace TekSoftwareSuporte
         public bool InstalarFirebird = true;
         public bool ConfigurarRede = true;
         public bool RenomearReiniciar;
-        public string ExcluirPastas = "XML;Xml;xml;NFe;NFCe;SAT;CTe;MDFe";
+        public string ExcluirPastas = DefaultFinalFolders;
 
         public string GetSummary()
         {
@@ -1255,7 +1257,7 @@ namespace TekSoftwareSuporte
                 return "Novo servidor | origem " + HostAntigo + " | versao " + TipoVersao;
             }
 
-            return "Servidor antigo | remover Firebird" + (RenomearReiniciar ? " | renomear para OLD" : "");
+            return "Servidor antigo | remover Firebird" + (RenomearReiniciar ? " | renomear para ANTIGO" : "");
         }
     }
 
@@ -1335,7 +1337,7 @@ namespace TekSoftwareSuporte
             Controls.Add(novoBox);
 
             Label hostLabel = new Label();
-            hostLabel.Text = "Servidor atual ou caminho origem";
+            hostLabel.Text = "Servidor atual antes da renomeacao";
             hostLabel.Left = 16;
             hostLabel.Top = 30;
             hostLabel.Width = 260;
@@ -1371,16 +1373,16 @@ namespace TekSoftwareSuporte
             versaoIRadio.Width = 100;
             novoBox.Controls.Add(versaoIRadio);
 
-            copiarPrincipalCheckBox.Text = "Pre-copiar TekSoftware sem pastas XML/pesadas";
+            copiarPrincipalCheckBox.Text = "Pre-copiar TekSoftware sem pastas finais/pesadas";
             copiarPrincipalCheckBox.Left = 16;
             copiarPrincipalCheckBox.Top = 104;
             copiarPrincipalCheckBox.Width = 390;
             novoBox.Controls.Add(copiarPrincipalCheckBox);
 
-            copiarFinalCheckBox.Text = "Rodar copia final/pastas XML agora";
+            copiarFinalCheckBox.Text = "Agendar copia final apos reinicio";
             copiarFinalCheckBox.Left = 16;
             copiarFinalCheckBox.Top = 134;
-            copiarFinalCheckBox.Width = 300;
+            copiarFinalCheckBox.Width = 360;
             novoBox.Controls.Add(copiarFinalCheckBox);
 
             instalarFullCheckBox.Text = "Executar FULL: versao + Crystal + .NET + VS";
@@ -1425,10 +1427,10 @@ namespace TekSoftwareSuporte
             antigoBox.ForeColor = blue;
             Controls.Add(antigoBox);
 
-            renomearReiniciarCheckBox.Text = "Renomear este computador e reiniciar ao final";
+            renomearReiniciarCheckBox.Text = "Renomear este computador para ANTIGO/SERVIDOR e reiniciar";
             renomearReiniciarCheckBox.Left = 16;
             renomearReiniciarCheckBox.Top = 30;
-            renomearReiniciarCheckBox.Width = 360;
+            renomearReiniciarCheckBox.Width = 520;
             antigoBox.Controls.Add(renomearReiniciarCheckBox);
 
             okButton.Text = "Salvar";
@@ -1471,7 +1473,7 @@ namespace TekSoftwareSuporte
                 instalarFirebirdCheckBox.Checked = true;
                 configurarRedeCheckBox.Checked = true;
                 renomearReiniciarCheckBox.Checked = false;
-                excluirPastasTextBox.Text = "XML;Xml;xml;NFe;NFCe;SAT;CTe;MDFe";
+                excluirPastasTextBox.Text = ServerMigrationPlan.DefaultFinalFolders;
                 return;
             }
 
