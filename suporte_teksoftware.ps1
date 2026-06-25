@@ -1198,6 +1198,34 @@ function Test-MapeamentoCriadoNoShellUsuario {
     }
 }
 
+function ReiniciarExplorerNoShellUsuario {
+    try {
+        LogMsg "Reiniciando Explorer para atualizar unidades de rede..."
+        $Resultado = ExecutarCmdShellUsuarioComTimeout -Comandos @(
+            "taskkill /f /im explorer.exe",
+            "timeout /t 2 /nobreak >nul",
+            "start `"`" explorer.exe",
+            "exit /b 0"
+        ) -TimeoutSegundos 15
+
+        foreach ($Linha in @($Resultado.Output)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "$Linha"
+            }
+        }
+
+        if ($Resultado.TimedOut) {
+            LogMsg "AVISO: Reinicio do Explorer excedeu o tempo limite."
+        }
+        else {
+            LogMsg "Explorer reiniciado para atualizar o mapeamento."
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao reiniciar Explorer: $($_.Exception.Message)"
+    }
+}
+
 function EncontrarTekAplicacaoEmDrive {
     param([string]$Drive)
 
@@ -1367,6 +1395,7 @@ function MapearTekSoftware {
 
         if (![string]::IsNullOrWhiteSpace($LetraLivre)) {
             CriarAtalhoTekFarmaMapeado -Drive $LetraLivre -CaminhoRede $CaminhoRede
+            ReiniciarExplorerNoShellUsuario
             return
         }
 
