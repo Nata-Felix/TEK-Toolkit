@@ -28,6 +28,7 @@ function Build-WinFormsExe {
         /reference:System.dll `
         /reference:System.Core.dll `
         /reference:System.Drawing.dll `
+        /reference:System.Web.Extensions.dll `
         /reference:System.Windows.Forms.dll `
         /resource:"$PSScriptRoot\assets\logo_display.png",TekFarmaLogo `
         /resource:"$PSScriptRoot\assets\TekFarmaInstaller.ico",TekFarmaIcon `

@@ -1,6 +1,10 @@
 param(
     [string]$Acoes = "",
-    [string]$HostServidor = "SERVIDOR"
+    [string]$HostServidor = "SERVIDOR",
+    [string]$ImpressoraMarca = "",
+    [string]$ImpressoraModelo = "",
+    [string]$ImpressoraArquivo = "",
+    [string]$ImpressoraInstalador = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -924,6 +928,137 @@ function ResetarImpressora {
     LogMsg "Iniciando o servico de spooler de impressao..."
     ExecutarComandoManutencao -Nome "Iniciar spooler de impressao" -Arquivo "net.exe" -Argumentos @("start", "spooler")
     LogMsg "Spooler de impressao resetado com sucesso."
+}
+
+function ObterNomeArquivoSeguro {
+    param([string]$Nome)
+
+    if ([string]::IsNullOrWhiteSpace($Nome)) {
+        return ""
+    }
+
+    return [System.IO.Path]::GetFileName($Nome)
+}
+
+function ObterInstaladoresImpressora {
+    param([string]$Raiz)
+
+    $Extensoes = @(".exe", ".msi", ".bat", ".cmd", ".inf")
+    $Arquivos = @(Get-ChildItem -LiteralPath $Raiz -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+        $Extensoes -contains $_.Extension.ToLowerInvariant()
+    })
+
+    $Pontuados = foreach ($Arquivo in $Arquivos) {
+        $Relativo = $Arquivo.FullName.Substring($Raiz.TrimEnd("\").Length).TrimStart("\")
+        $Profundidade = @($Relativo -split "\\").Count
+        $Pontuacao = 1000
+
+        switch ($Arquivo.Extension.ToLowerInvariant()) {
+            ".exe" { $Pontuacao -= 400 }
+            ".msi" { $Pontuacao -= 350 }
+            ".bat" { $Pontuacao -= 250 }
+            ".cmd" { $Pontuacao -= 250 }
+            ".inf" { $Pontuacao -= 100 }
+        }
+
+        if ($Arquivo.Name -match "(?i)(setup|install|instal|driver|spooler|printer|zsu|apd|tanca|daruma|bematech|elgin|epson|perto|sweda|zebra|kp|feasso|gains)") {
+            $Pontuacao -= 120
+        }
+
+        $Pontuacao += ($Profundidade * 10)
+
+        [pscustomobject]@{
+            Caminho = $Arquivo.FullName
+            Relativo = $Relativo
+            Pontuacao = $Pontuacao
+        }
+    }
+
+    @($Pontuados | Sort-Object Pontuacao, Relativo)
+}
+
+function IniciarInstaladorImpressora {
+    param([string]$Caminho)
+
+    if (!(Test-Path $Caminho)) {
+        throw "Instalador nao encontrado: $Caminho"
+    }
+
+    Unblock-File -LiteralPath $Caminho -ErrorAction SilentlyContinue
+
+    $Extensao = [System.IO.Path]::GetExtension($Caminho).ToLowerInvariant()
+    $Pasta = Split-Path -Parent $Caminho
+
+    LogMsg "Abrindo instalador de impressora: $Caminho"
+
+    switch ($Extensao) {
+        ".msi" {
+            Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", "`"$Caminho`"") -WorkingDirectory $Pasta | Out-Null
+        }
+        ".bat" {
+            Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "`"$Caminho`"") -WorkingDirectory $Pasta | Out-Null
+        }
+        ".cmd" {
+            Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "`"$Caminho`"") -WorkingDirectory $Pasta | Out-Null
+        }
+        ".inf" {
+            ExecutarComandoManutencao -Nome "Instalar driver INF de impressora" -Arquivo "pnputil.exe" -Argumentos @("/add-driver", $Caminho, "/install")
+        }
+        default {
+            Start-Process -FilePath $Caminho -WorkingDirectory $Pasta | Out-Null
+        }
+    }
+}
+
+function InstalarDriverImpressora {
+    if ([string]::IsNullOrWhiteSpace($ImpressoraArquivo)) {
+        throw "Nenhum driver de impressora foi selecionado na GUI."
+    }
+
+    $ArquivoSeguro = ObterNomeArquivoSeguro -Nome $ImpressoraArquivo
+    $Zip = Join-Path $Base $ArquivoSeguro
+
+    if (!(Test-Path $Zip)) {
+        throw "Pacote de driver nao encontrado: $Zip"
+    }
+
+    $NomeBase = [System.IO.Path]::GetFileNameWithoutExtension($ArquivoSeguro)
+    $DestinoTemp = Join-Path $Base ("driver_impressora_" + $NomeBase + "_" + (Get-Date -Format "yyyyMMddHHmmss"))
+
+    LogMsg "Marca selecionada: $ImpressoraMarca"
+    LogMsg "Modelo selecionado: $ImpressoraModelo"
+    LogMsg "Pacote selecionado: $ArquivoSeguro"
+    LogMsg "Extraindo driver de impressora para: $DestinoTemp"
+
+    New-Item -ItemType Directory -Path $DestinoTemp -Force | Out-Null
+    Expand-Archive -LiteralPath $Zip -DestinationPath $DestinoTemp -Force
+
+    $Instalador = ""
+
+    if (![string]::IsNullOrWhiteSpace($ImpressoraInstalador)) {
+        $Candidato = Join-Path $DestinoTemp $ImpressoraInstalador
+
+        if (Test-CaminhoDentroOuIgual -BasePath $DestinoTemp -Path $Candidato -and (Test-Path $Candidato)) {
+            $Instalador = $Candidato
+        }
+        else {
+            LogMsg "AVISO: Instalador informado no indice nao foi encontrado: $ImpressoraInstalador"
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Instalador)) {
+        $Candidatos = @(ObterInstaladoresImpressora -Raiz $DestinoTemp)
+
+        if ($Candidatos.Count -eq 0) {
+            throw "Nenhum instalador foi encontrado dentro do pacote $ArquivoSeguro."
+        }
+
+        $Instalador = $Candidatos[0].Caminho
+        LogMsg "Instalador detectado automaticamente: $($Candidatos[0].Relativo)"
+    }
+
+    IniciarInstaladorImpressora -Caminho $Instalador
+    LogMsg "Instalador iniciado. Arquivos extraidos mantidos em: $DestinoTemp"
 }
 
 function InstalarGpeditMsc {
@@ -2218,6 +2353,9 @@ LogMsg "SUPORTE TEKSOFTWARE"
 LogMsg "====================================="
 LogMsg "Acoes recebidas: $Acoes"
 LogMsg "HostServidor recebido: $HostServidor"
+if (![string]::IsNullOrWhiteSpace($ImpressoraArquivo)) {
+    LogMsg "Impressora recebida: $ImpressoraMarca / $ImpressoraModelo / $ImpressoraArquivo"
+}
 LogMsg "Base: $Base"
 
 $script:ExecutandoComoAdmin = Test-Admin
@@ -2300,6 +2438,11 @@ foreach ($Acao in $ListaAcoes) {
         "resetimpressora" {
             ExecutarPassoAdmin "Resetar impressora" {
                 ResetarImpressora
+            }
+        }
+        "impressora" {
+            ExecutarPassoAdmin "Instalar driver de impressora" {
+                InstalarDriverImpressora
             }
         }
         "gpedit" {

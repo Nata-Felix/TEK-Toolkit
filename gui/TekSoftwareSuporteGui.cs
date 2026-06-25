@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Web.Script.Serialization;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -26,8 +27,11 @@ namespace TekSoftwareSuporte
     internal sealed class SupportForm : Form
     {
         private const string Version = "v1.0";
+        private const string DriversVersion = "drivers-impressoras-v1";
         private const string Repo = "Nata-Felix/Instalacao_crystal_adv";
         private const string BaseUrl = "https://github.com/" + Repo + "/releases/download/" + Version;
+        private const string DriversBaseUrl = "https://github.com/" + Repo + "/releases/download/" + DriversVersion;
+        private const string DriversIndexUrl = DriversBaseUrl + "/drivers-impressoras.json";
         private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/main";
 
         private readonly Color blue = Color.FromArgb(0, 92, 190);
@@ -46,6 +50,8 @@ namespace TekSoftwareSuporte
         private readonly Button closeButton = new Button();
         private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
+        private readonly Label printerSelectionLabel = new Label();
+        private readonly Button printerSelectButton = new Button();
         private readonly PictureBox logoBox = new PictureBox();
         private readonly ToolTip toolTip = new ToolTip();
 
@@ -55,13 +61,15 @@ namespace TekSoftwareSuporte
         private string tempDir;
         private int completedUnits;
         private int totalUnits;
+        private PrinterDriver selectedPrinter;
+        private ActionOption printerActionOption;
 
         public SupportForm()
         {
             Text = "Suporte TekSoftware";
             Width = 1024;
-            Height = 660;
-            MinimumSize = new Size(1024, 660);
+            Height = 700;
+            MinimumSize = new Size(1024, 700);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.White;
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
@@ -197,6 +205,17 @@ namespace TekSoftwareSuporte
             AddSection(actionsPanel, "Servidor", ref y);
             AddAction(actionsPanel, "firebird", "Reinstalar Firebird", "Remove Firebird atual, reinstala 2.5.9 e configura recuperacao em 3 tentativas.", ref y);
 
+            AddSection(actionsPanel, "Impressoras", ref y);
+            printerActionOption = AddAction(actionsPanel, "impressora", "Instalar impressora", "Seleciona marca/modelo, baixa somente o ZIP necessario e abre o instalador.", ref y);
+            printerActionOption.CheckBox.CheckedChanged += delegate
+            {
+                UpdatePrinterSelectionState();
+                if (printerActionOption.CheckBox.Checked && selectedPrinter == null)
+                {
+                    ShowPrinterSelectionDialog();
+                }
+            };
+
             AddSection(actionsPanel, "Autonomia Windows", ref y);
             AddAction(actionsPanel, "net35", "Instalar .NET 3.5", "Ativa o recurso NetFX3 pelo DISM, tentando C:\\ e depois Windows Update.", ref y);
             AddAction(actionsPanel, "net48", "Instalar .NET 4.8", "Instala o .NET Framework 4.8 offline usando o instalador do release.", ref y);
@@ -209,6 +228,7 @@ namespace TekSoftwareSuporte
             AddAction(actionsPanel, "gpedit", "Instalar GPEDIT.MSC", "Instala os pacotes GroupPolicy ClientTools e ClientExtensions via DISM.", ref y);
 
             BuildHostPanel(root);
+            BuildPrinterPanel(root);
             BuildProgressPanel(root);
         }
 
@@ -226,7 +246,7 @@ namespace TekSoftwareSuporte
             y += 26;
         }
 
-        private void AddAction(Panel parent, string id, string title, string tooltip, ref int y)
+        private ActionOption AddAction(Panel parent, string id, string title, string tooltip, ref int y)
         {
             CheckBox checkBox = new CheckBox();
             checkBox.Text = title;
@@ -238,8 +258,10 @@ namespace TekSoftwareSuporte
             checkBox.ForeColor = Color.FromArgb(28, 36, 48);
             parent.Controls.Add(checkBox);
             toolTip.SetToolTip(checkBox, tooltip);
-            actionOptions.Add(new ActionOption(id, title, checkBox));
+            ActionOption option = new ActionOption(id, title, checkBox);
+            actionOptions.Add(option);
             y += 34;
+            return option;
         }
 
         private void BuildHostPanel(Control root)
@@ -265,6 +287,42 @@ namespace TekSoftwareSuporte
             AddHostButton(root, "SERVIDOR", 202);
             AddHostButton(root, "SERVER", 262);
             AddHostButton(root, "SERVERTEK", 314);
+        }
+
+        private void BuildPrinterPanel(Control root)
+        {
+            Label printerLabel = new Label();
+            printerLabel.Text = "Driver de impressora";
+            printerLabel.Left = 44;
+            printerLabel.Top = 526;
+            printerLabel.Width = 190;
+            printerLabel.Height = 22;
+            printerLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            printerLabel.ForeColor = blue;
+            root.Controls.Add(printerLabel);
+
+            printerSelectionLabel.Text = "Nenhuma impressora selecionada";
+            printerSelectionLabel.Left = 42;
+            printerSelectionLabel.Top = 550;
+            printerSelectionLabel.Width = 210;
+            printerSelectionLabel.Height = 26;
+            printerSelectionLabel.AutoEllipsis = true;
+            printerSelectionLabel.ForeColor = Color.FromArgb(38, 48, 64);
+            printerSelectionLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point);
+            root.Controls.Add(printerSelectionLabel);
+            toolTip.SetToolTip(printerSelectionLabel, printerSelectionLabel.Text);
+
+            printerSelectButton.Text = "Selecionar";
+            printerSelectButton.Left = 262;
+            printerSelectButton.Top = 546;
+            printerSelectButton.Width = 116;
+            printerSelectButton.Height = 30;
+            printerSelectButton.FlatStyle = FlatStyle.Flat;
+            printerSelectButton.FlatAppearance.BorderColor = border;
+            printerSelectButton.BackColor = Color.White;
+            printerSelectButton.Enabled = false;
+            printerSelectButton.Click += delegate { ShowPrinterSelectionDialog(); };
+            root.Controls.Add(printerSelectButton);
         }
 
         private void AddHostButton(Control root, string text, int left)
@@ -357,7 +415,7 @@ namespace TekSoftwareSuporte
         {
             Panel line = new Panel();
             line.Left = 0;
-            line.Top = 564;
+            line.Top = 604;
             line.Width = 1024;
             line.Height = 1;
             line.BackColor = border;
@@ -365,7 +423,7 @@ namespace TekSoftwareSuporte
 
             statusLabel.Text = "Pronto para executar";
             statusLabel.Left = 62;
-            statusLabel.Top = 590;
+            statusLabel.Top = 630;
             statusLabel.Width = 300;
             statusLabel.Height = 24;
             statusLabel.ForeColor = Color.FromArgb(38, 48, 64);
@@ -374,7 +432,7 @@ namespace TekSoftwareSuporte
 
             InfoCircle info = new InfoCircle();
             info.Left = 40;
-            info.Top = 588;
+            info.Top = 628;
             info.Width = 18;
             info.Height = 18;
             info.ForeColor = blue;
@@ -382,7 +440,7 @@ namespace TekSoftwareSuporte
 
             closeWhenDoneCheckBox.Text = "Fechar automaticamente ao finalizar";
             closeWhenDoneCheckBox.Left = 364;
-            closeWhenDoneCheckBox.Top = 584;
+            closeWhenDoneCheckBox.Top = 624;
             closeWhenDoneCheckBox.Width = 225;
             closeWhenDoneCheckBox.Height = 24;
             closeWhenDoneCheckBox.Checked = false;
@@ -392,7 +450,7 @@ namespace TekSoftwareSuporte
 
             executeButton.Text = "Executar";
             executeButton.Left = 604;
-            executeButton.Top = 572;
+            executeButton.Top = 612;
             executeButton.Width = 150;
             executeButton.Height = 40;
             executeButton.FlatStyle = FlatStyle.Flat;
@@ -405,7 +463,7 @@ namespace TekSoftwareSuporte
 
             cancelButton.Text = "Cancelar";
             cancelButton.Left = 772;
-            cancelButton.Top = 572;
+            cancelButton.Top = 612;
             cancelButton.Width = 124;
             cancelButton.Height = 40;
             cancelButton.FlatStyle = FlatStyle.Flat;
@@ -417,7 +475,7 @@ namespace TekSoftwareSuporte
 
             closeButton.Text = "Fechar";
             closeButton.Left = 912;
-            closeButton.Top = 572;
+            closeButton.Top = 612;
             closeButton.Width = 88;
             closeButton.Height = 40;
             closeButton.FlatStyle = FlatStyle.Flat;
@@ -428,6 +486,46 @@ namespace TekSoftwareSuporte
             root.Controls.Add(closeButton);
         }
 
+        private bool ShowPrinterSelectionDialog()
+        {
+            using (PrinterDriverDialog dialog = new PrinterDriverDialog(DriversIndexUrl, selectedPrinter))
+            {
+                DialogResult result = dialog.ShowDialog(this);
+
+                if (result == DialogResult.OK && dialog.SelectedDriver != null)
+                {
+                    selectedPrinter = dialog.SelectedDriver;
+
+                    if (printerActionOption != null)
+                    {
+                        printerActionOption.CheckBox.Checked = true;
+                    }
+
+                    UpdatePrinterSelectionState();
+                    return true;
+                }
+            }
+
+            UpdatePrinterSelectionState();
+            return false;
+        }
+
+        private void UpdatePrinterSelectionState()
+        {
+            bool enabled = printerActionOption != null && printerActionOption.CheckBox.Checked;
+            printerSelectButton.Enabled = enabled;
+
+            string text = "Nenhuma impressora selecionada";
+
+            if (selectedPrinter != null)
+            {
+                text = selectedPrinter.Marca + " / " + selectedPrinter.Modelo;
+            }
+
+            printerSelectionLabel.Text = text;
+            toolTip.SetToolTip(printerSelectionLabel, text);
+        }
+
         private void StartSupport()
         {
             if (worker != null && worker.IsBusy)
@@ -436,6 +534,11 @@ namespace TekSoftwareSuporte
             }
 
             WorkPlan plan = BuildWorkPlan();
+            if (plan == null)
+            {
+                return;
+            }
+
             if (plan.Actions.Count == 0)
             {
                 statusLabel.Text = "Selecione ao menos uma acao";
@@ -548,6 +651,25 @@ namespace TekSoftwareSuporte
                 plan.Downloads.Add(new DownloadItem(BaseUrl + "/dotnet48.exe", "dotnet48.exe", "dotnet48.exe"));
             }
 
+            if (plan.ContainsAction("impressora"))
+            {
+                if (selectedPrinter == null)
+                {
+                    if (!ShowPrinterSelectionDialog())
+                    {
+                        statusLabel.Text = "Selecione a impressora";
+                        currentStepLabel.Text = "Instalacao de impressora sem modelo selecionado";
+                        return null;
+                    }
+                }
+
+                plan.PrinterDriver = selectedPrinter;
+                plan.Downloads.Add(new DownloadItem(
+                    DriversBaseUrl + "/" + selectedPrinter.Arquivo,
+                    Path.GetFileName(selectedPrinter.Arquivo),
+                    "Driver " + selectedPrinter.Marca + " " + selectedPrinter.Modelo));
+            }
+
             return plan;
         }
 
@@ -586,7 +708,15 @@ namespace TekSoftwareSuporte
 
             string actionList = String.Join(",", plan.GetActionIds().ToArray());
             string scriptPath = Path.Combine(tempDir, "suporte_teksoftware.ps1");
-            string args = "-NoProfile -ExecutionPolicy Bypass -File \"" + scriptPath + "\" -Acoes \"" + actionList + "\" -HostServidor \"" + plan.HostServidor + "\"";
+            string args = "-NoProfile -ExecutionPolicy Bypass -File " + QuoteArgument(scriptPath) + " -Acoes " + QuoteArgument(actionList) + " -HostServidor " + QuoteArgument(plan.HostServidor);
+
+            if (plan.PrinterDriver != null)
+            {
+                args += " -ImpressoraMarca " + QuoteArgument(plan.PrinterDriver.Marca);
+                args += " -ImpressoraModelo " + QuoteArgument(plan.PrinterDriver.Modelo);
+                args += " -ImpressoraArquivo " + QuoteArgument(Path.GetFileName(plan.PrinterDriver.Arquivo));
+                args += " -ImpressoraInstalador " + QuoteArgument(plan.PrinterDriver.Instalador);
+            }
 
             bg.ReportProgress(CalcPercent(completedUnits, totalUnits), "Executando suporte TekSoftware...");
             AppendLog("[INFO] Iniciando PowerShell:");
@@ -738,6 +868,16 @@ namespace TekSoftwareSuporte
             return bytes + " bytes";
         }
 
+        private string QuoteArgument(string value)
+        {
+            if (value == null)
+            {
+                value = "";
+            }
+
+            return "\"" + value.Replace("\"", "\\\"") + "\"";
+        }
+
         private void SetProgress(int value)
         {
             if (value < progressBar.Minimum) value = progressBar.Minimum;
@@ -768,6 +908,7 @@ namespace TekSoftwareSuporte
             }
 
             hostTextBox.Enabled = enabled;
+            printerSelectButton.Enabled = enabled && printerActionOption != null && printerActionOption.CheckBox.Checked;
             closeWhenDoneCheckBox.Enabled = enabled;
         }
 
@@ -813,6 +954,7 @@ namespace TekSoftwareSuporte
     internal sealed class WorkPlan
     {
         public string HostServidor;
+        public PrinterDriver PrinterDriver;
         public readonly List<ActionOption> Actions = new List<ActionOption>();
         public readonly List<DownloadItem> Downloads = new List<DownloadItem>();
 
@@ -853,6 +995,393 @@ namespace TekSoftwareSuporte
             Url = url;
             FileName = fileName;
             Name = name;
+        }
+    }
+
+    internal sealed class PrinterDriver
+    {
+        public string marca { get; set; }
+        public string modelo { get; set; }
+        public string arquivo { get; set; }
+        public string instalador { get; set; }
+        public string[] instaladores { get; set; }
+        public string origem { get; set; }
+        public long tamanhoBytes { get; set; }
+
+        public string Marca
+        {
+            get { return marca ?? ""; }
+        }
+
+        public string Modelo
+        {
+            get { return modelo ?? ""; }
+        }
+
+        public string Arquivo
+        {
+            get { return arquivo ?? ""; }
+        }
+
+        public string Instalador
+        {
+            get { return instalador ?? ""; }
+        }
+
+        public string DisplayText
+        {
+            get
+            {
+                string text = Modelo;
+
+                if (tamanhoBytes > 0)
+                {
+                    text += "  (" + FormatBytes(tamanhoBytes) + ")";
+                }
+
+                return text;
+            }
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes >= 1024 * 1024)
+            {
+                return Math.Round(bytes / 1024.0 / 1024.0, 1) + " MB";
+            }
+
+            if (bytes >= 1024)
+            {
+                return Math.Round(bytes / 1024.0, 1) + " KB";
+            }
+
+            return bytes + " bytes";
+        }
+    }
+
+    internal sealed class PrinterDriverDialog : Form
+    {
+        private readonly string indexUrl;
+        private readonly PrinterDriver currentDriver;
+        private readonly Color blue = Color.FromArgb(0, 92, 190);
+        private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
+        private readonly Color border = Color.FromArgb(205, 214, 224);
+        private readonly ListBox brandList = new ListBox();
+        private readonly ListBox modelList = new ListBox();
+        private readonly Label statusLabel = new Label();
+        private readonly Label detailLabel = new Label();
+        private readonly Button refreshButton = new Button();
+        private readonly Button okButton = new Button();
+        private readonly Button cancelButton = new Button();
+        private readonly List<PrinterDriver> drivers = new List<PrinterDriver>();
+
+        public PrinterDriver SelectedDriver { get; private set; }
+
+        public PrinterDriverDialog(string indexUrl, PrinterDriver currentDriver)
+        {
+            this.indexUrl = indexUrl;
+            this.currentDriver = currentDriver;
+
+            Text = "Selecionar impressora";
+            Width = 760;
+            Height = 500;
+            MinimumSize = new Size(760, 500);
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = Color.White;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+
+            BuildLayout();
+            Load += delegate { LoadIndex(); };
+        }
+
+        private void BuildLayout()
+        {
+            Label title = new Label();
+            title.Text = "Instalar impressora";
+            title.Left = 24;
+            title.Top = 18;
+            title.Width = 420;
+            title.Height = 34;
+            title.Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point);
+            title.ForeColor = darkBlue;
+            Controls.Add(title);
+
+            statusLabel.Text = "Carregando indice de drivers...";
+            statusLabel.Left = 26;
+            statusLabel.Top = 58;
+            statusLabel.Width = 560;
+            statusLabel.Height = 24;
+            statusLabel.ForeColor = Color.FromArgb(90, 98, 112);
+            Controls.Add(statusLabel);
+
+            refreshButton.Text = "Atualizar";
+            refreshButton.Left = 628;
+            refreshButton.Top = 24;
+            refreshButton.Width = 96;
+            refreshButton.Height = 32;
+            refreshButton.FlatStyle = FlatStyle.Flat;
+            refreshButton.FlatAppearance.BorderColor = border;
+            refreshButton.BackColor = Color.White;
+            refreshButton.Click += delegate { LoadIndex(); };
+            Controls.Add(refreshButton);
+
+            Label brandTitle = new Label();
+            brandTitle.Text = "Marca";
+            brandTitle.Left = 24;
+            brandTitle.Top = 96;
+            brandTitle.Width = 250;
+            brandTitle.Height = 24;
+            brandTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            brandTitle.ForeColor = blue;
+            Controls.Add(brandTitle);
+
+            brandList.Left = 24;
+            brandList.Top = 124;
+            brandList.Width = 300;
+            brandList.Height = 244;
+            brandList.BorderStyle = BorderStyle.FixedSingle;
+            brandList.SelectedIndexChanged += delegate { PopulateModels(); };
+            Controls.Add(brandList);
+
+            Label modelTitle = new Label();
+            modelTitle.Text = "Modelo";
+            modelTitle.Left = 348;
+            modelTitle.Top = 96;
+            modelTitle.Width = 250;
+            modelTitle.Height = 24;
+            modelTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            modelTitle.ForeColor = blue;
+            Controls.Add(modelTitle);
+
+            modelList.Left = 348;
+            modelList.Top = 124;
+            modelList.Width = 376;
+            modelList.Height = 244;
+            modelList.BorderStyle = BorderStyle.FixedSingle;
+            modelList.DisplayMember = "DisplayText";
+            modelList.SelectedIndexChanged += delegate { UpdateSelectionDetails(); };
+            modelList.DoubleClick += delegate { ConfirmSelection(); };
+            Controls.Add(modelList);
+
+            detailLabel.Text = "Selecione uma marca e um modelo.";
+            detailLabel.Left = 24;
+            detailLabel.Top = 382;
+            detailLabel.Width = 700;
+            detailLabel.Height = 36;
+            detailLabel.AutoEllipsis = true;
+            detailLabel.ForeColor = Color.FromArgb(38, 48, 64);
+            Controls.Add(detailLabel);
+
+            okButton.Text = "Instalar selecionada";
+            okButton.Left = 462;
+            okButton.Top = 424;
+            okButton.Width = 150;
+            okButton.Height = 36;
+            okButton.FlatStyle = FlatStyle.Flat;
+            okButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
+            okButton.BackColor = Color.FromArgb(0, 104, 210);
+            okButton.ForeColor = Color.White;
+            okButton.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            okButton.Enabled = false;
+            okButton.Click += delegate { ConfirmSelection(); };
+            Controls.Add(okButton);
+
+            cancelButton.Text = "Cancelar";
+            cancelButton.Left = 628;
+            cancelButton.Top = 424;
+            cancelButton.Width = 96;
+            cancelButton.Height = 36;
+            cancelButton.FlatStyle = FlatStyle.Flat;
+            cancelButton.FlatAppearance.BorderColor = border;
+            cancelButton.BackColor = Color.White;
+            cancelButton.DialogResult = DialogResult.Cancel;
+            Controls.Add(cancelButton);
+
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+        }
+
+        private void LoadIndex()
+        {
+            Cursor previousCursor = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            refreshButton.Enabled = false;
+            okButton.Enabled = false;
+            statusLabel.Text = "Baixando indice de drivers...";
+            brandList.Items.Clear();
+            modelList.Items.Clear();
+            detailLabel.Text = "Aguarde o carregamento do indice.";
+
+            try
+            {
+                using (WebClient client = new WebClient())
+                {
+                    string json = client.DownloadString(indexUrl);
+                    JavaScriptSerializer serializer = new JavaScriptSerializer();
+                    PrinterDriver[] loaded = serializer.Deserialize<PrinterDriver[]>(json);
+
+                    drivers.Clear();
+
+                    if (loaded != null)
+                    {
+                        for (int i = 0; i < loaded.Length; i++)
+                        {
+                            if (loaded[i] != null && !String.IsNullOrWhiteSpace(loaded[i].Marca) && !String.IsNullOrWhiteSpace(loaded[i].Modelo) && !String.IsNullOrWhiteSpace(loaded[i].Arquivo))
+                            {
+                                drivers.Add(loaded[i]);
+                            }
+                        }
+                    }
+                }
+
+                drivers.Sort(delegate(PrinterDriver a, PrinterDriver b)
+                {
+                    int brand = String.Compare(a.Marca, b.Marca, StringComparison.OrdinalIgnoreCase);
+                    if (brand != 0) return brand;
+                    return String.Compare(a.Modelo, b.Modelo, StringComparison.OrdinalIgnoreCase);
+                });
+
+                PopulateBrands();
+                statusLabel.Text = drivers.Count + " drivers disponiveis.";
+            }
+            catch (Exception ex)
+            {
+                statusLabel.Text = "Erro ao carregar indice de drivers.";
+                detailLabel.Text = ex.Message;
+            }
+            finally
+            {
+                refreshButton.Enabled = true;
+                Cursor.Current = previousCursor;
+            }
+        }
+
+        private void PopulateBrands()
+        {
+            brandList.Items.Clear();
+            modelList.Items.Clear();
+
+            List<string> brands = new List<string>();
+
+            for (int i = 0; i < drivers.Count; i++)
+            {
+                if (!ContainsText(brands, drivers[i].Marca))
+                {
+                    brands.Add(drivers[i].Marca);
+                }
+            }
+
+            brands.Sort(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < brands.Count; i++)
+            {
+                brandList.Items.Add(brands[i]);
+            }
+
+            if (currentDriver != null)
+            {
+                for (int i = 0; i < brandList.Items.Count; i++)
+                {
+                    if (String.Equals(Convert.ToString(brandList.Items[i]), currentDriver.Marca, StringComparison.OrdinalIgnoreCase))
+                    {
+                        brandList.SelectedIndex = i;
+                        SelectCurrentModel();
+                        return;
+                    }
+                }
+            }
+
+            if (brandList.Items.Count > 0)
+            {
+                brandList.SelectedIndex = 0;
+            }
+        }
+
+        private void PopulateModels()
+        {
+            modelList.Items.Clear();
+            string brand = Convert.ToString(brandList.SelectedItem);
+
+            for (int i = 0; i < drivers.Count; i++)
+            {
+                if (String.Equals(drivers[i].Marca, brand, StringComparison.OrdinalIgnoreCase))
+                {
+                    modelList.Items.Add(drivers[i]);
+                }
+            }
+
+            if (modelList.Items.Count > 0)
+            {
+                modelList.SelectedIndex = 0;
+            }
+
+            SelectCurrentModel();
+            UpdateSelectionDetails();
+        }
+
+        private void SelectCurrentModel()
+        {
+            if (currentDriver == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < modelList.Items.Count; i++)
+            {
+                PrinterDriver driver = modelList.Items[i] as PrinterDriver;
+                if (driver != null &&
+                    String.Equals(driver.Marca, currentDriver.Marca, StringComparison.OrdinalIgnoreCase) &&
+                    String.Equals(driver.Modelo, currentDriver.Modelo, StringComparison.OrdinalIgnoreCase))
+                {
+                    modelList.SelectedIndex = i;
+                    return;
+                }
+            }
+        }
+
+        private void UpdateSelectionDetails()
+        {
+            PrinterDriver driver = modelList.SelectedItem as PrinterDriver;
+            okButton.Enabled = driver != null;
+
+            if (driver == null)
+            {
+                detailLabel.Text = "Selecione uma marca e um modelo.";
+                return;
+            }
+
+            string installer = String.IsNullOrWhiteSpace(driver.Instalador) ? "instalador automatico" : driver.Instalador;
+            detailLabel.Text = "Arquivo: " + driver.Arquivo + " | Instalador: " + installer;
+        }
+
+        private void ConfirmSelection()
+        {
+            PrinterDriver driver = modelList.SelectedItem as PrinterDriver;
+
+            if (driver == null)
+            {
+                return;
+            }
+
+            SelectedDriver = driver;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+
+        private bool ContainsText(List<string> values, string text)
+        {
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (String.Equals(values[i], text, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 
