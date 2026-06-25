@@ -761,7 +761,7 @@ namespace TekSoftwareSuporte
                 statusLabel.Text = "Processo concluido";
                 AppendLog("[OK] Processo finalizado.");
 
-                if (closeWhenDoneCheckBox.Checked)
+                if (closeWhenDoneCheckBox.Checked || plan.CloseWhenServerMigrationFinalCopyEnds)
                 {
                     BeginInvoke(new Action(Close));
                 }
@@ -843,6 +843,7 @@ namespace TekSoftwareSuporte
                 }
 
                 plan.ServerMigration = selectedServerMigration;
+                plan.CloseWhenServerMigrationFinalCopyEnds = selectedServerMigration.IsNovoServidor && selectedServerMigration.CopiarFinal;
 
                 if (selectedServerMigration.IsNovoServidor)
                 {
@@ -1190,6 +1191,7 @@ namespace TekSoftwareSuporte
         public string HostServidor;
         public PrinterDriver PrinterDriver;
         public ServerMigrationPlan ServerMigration;
+        public bool CloseWhenServerMigrationFinalCopyEnds;
         public readonly List<string> PrintersToRemove = new List<string>();
         public readonly List<string> PrinterDriversToRemove = new List<string>();
         public readonly List<ActionOption> Actions = new List<ActionOption>();
@@ -1379,7 +1381,7 @@ namespace TekSoftwareSuporte
             copiarPrincipalCheckBox.Width = 390;
             novoBox.Controls.Add(copiarPrincipalCheckBox);
 
-            copiarFinalCheckBox.Text = "Agendar copia final apos reinicio";
+            copiarFinalCheckBox.Text = "Copiar pastas finais por ultimo";
             copiarFinalCheckBox.Left = 16;
             copiarFinalCheckBox.Top = 134;
             copiarFinalCheckBox.Width = 360;
