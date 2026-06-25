@@ -1161,6 +1161,23 @@ function ObterLetrasLivresMapeamento {
     return $Livres
 }
 
+function RemoverMapeamentoUsuario {
+    param([string]$Drive)
+
+    try {
+        $Resultado = ExecutarCmdShellUsuarioComTimeout -Comandos @("net use $Drive /delete /y") -TimeoutSegundos 8
+
+        foreach ($Linha in @($Resultado.Output)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "$Linha"
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao remover mapeamento $Drive do usuario: $($_.Exception.Message)"
+    }
+}
+
 function MapearDriveNoShellUsuario {
     param(
         [string]$Drive,
@@ -1196,6 +1213,27 @@ function Test-MapeamentoCriadoNoShellUsuario {
         LogMsg "AVISO: Falha ao validar mapeamento $Drive no usuario: $($_.Exception.Message)"
         return $false
     }
+}
+
+function Test-TekAplicacaoDisponivel {
+    param(
+        [string]$Drive,
+        [string]$CaminhoRede
+    )
+
+    $AlvoDrive = EncontrarTekAplicacaoEmDrive -Drive $Drive
+    if (![string]::IsNullOrWhiteSpace($AlvoDrive)) {
+        LogMsg "TekAplicacao encontrado no mapeamento: $AlvoDrive"
+        return $true
+    }
+
+    $AlvoRede = EncontrarTekAplicacaoEmRede -CaminhoRede $CaminhoRede
+    if (![string]::IsNullOrWhiteSpace($AlvoRede)) {
+        LogMsg "TekAplicacao encontrado no caminho de rede: $AlvoRede"
+        return $true
+    }
+
+    return $false
 }
 
 function ReiniciarExplorerNoShellUsuario {
@@ -1320,6 +1358,12 @@ function TentarMapearTekSoftware {
         }
 
         if (Test-MapeamentoCriadoNoShellUsuario -Drive $Drive -CaminhoRede $CaminhoRede) {
+            if (!(Test-TekAplicacaoDisponivel -Drive $Drive -CaminhoRede $CaminhoRede)) {
+                LogMsg "AVISO: $CaminhoRede foi mapeado em $Drive, mas TekAplicacao.exe nao foi encontrado em TekFarma. Removendo e tentando proximo compartilhamento..."
+                RemoverMapeamentoUsuario -Drive $Drive
+                return ""
+            }
+
             LogMsg "Mapeamento criado: $Drive -> $CaminhoRede"
             return $Drive
         }
@@ -1340,6 +1384,56 @@ function TentarMapearTekSoftware {
     return ""
 }
 
+function AdicionarCandidatoRede {
+    param(
+        [System.Collections.ArrayList]$Lista,
+        [string]$CaminhoRede
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CaminhoRede)) {
+        return
+    }
+
+    $Normalizado = $CaminhoRede.TrimEnd("\")
+
+    foreach ($Item in $Lista) {
+        if ($Item.Equals($Normalizado, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return
+        }
+    }
+
+    [void]$Lista.Add($Normalizado)
+}
+
+function ObterCompartilhamentosServidor {
+    param([string]$Servidor)
+
+    $Compartilhamentos = @()
+
+    if ([string]::IsNullOrWhiteSpace($Servidor)) {
+        return $Compartilhamentos
+    }
+
+    try {
+        $Resultado = ExecutarProcessoMapeamentoComTimeout -Arquivo "cmd.exe" -Argumentos "/c net view \\$Servidor" -TimeoutSegundos 10
+
+        foreach ($Linha in @($Resultado.Output)) {
+            if ($Linha -match "^\s*(.+?)\s{2,}(Disco|Disk)\b") {
+                $Nome = $Matches[1].Trim()
+
+                if (![string]::IsNullOrWhiteSpace($Nome) -and !$Nome.EndsWith('$') -and $Compartilhamentos -notcontains $Nome) {
+                    $Compartilhamentos += $Nome
+                }
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao listar compartilhamentos de ${Servidor}: $($_.Exception.Message)"
+    }
+
+    return $Compartilhamentos
+}
+
 function ObterCandidatosRedeTekSoftware {
     param([string]$HostInformado)
 
@@ -1353,20 +1447,39 @@ function ObterCandidatosRedeTekSoftware {
         $Valor = "SERVIDOR"
     }
 
+    $Candidatos = New-Object System.Collections.ArrayList
+
     if ($Valor.StartsWith("\\")) {
-        return @($Valor.TrimEnd("\"))
+        AdicionarCandidatoRede -Lista $Candidatos -CaminhoRede $Valor
+        return @($Candidatos)
     }
 
     if ($Valor.Contains("\")) {
-        return @("\\" + $Valor.Trim("\"))
+        AdicionarCandidatoRede -Lista $Candidatos -CaminhoRede ("\\" + $Valor.Trim("\"))
+        return @($Candidatos)
     }
 
     $HostLimpo = $Valor.Trim("\")
 
-    return @(
-        "\\$HostLimpo\TekSoftware",
-        "\\$HostLimpo\Tek"
-    )
+    AdicionarCandidatoRede -Lista $Candidatos -CaminhoRede "\\$HostLimpo\TekSoftware"
+    AdicionarCandidatoRede -Lista $Candidatos -CaminhoRede "\\$HostLimpo\Tek"
+
+    $Compartilhamentos = @(ObterCompartilhamentosServidor -Servidor $HostLimpo)
+    $Ordenados = @($Compartilhamentos | Sort-Object @{ Expression = {
+        if ($_ -ieq "TekSoftware") { 0 }
+        elseif ($_ -ieq "Tek") { 1 }
+        elseif ($_ -match "(?i)tek") { 2 }
+        else { 3 }
+    } }, @{ Expression = { $_ } })
+
+    foreach ($Compartilhamento in $Ordenados) {
+        AdicionarCandidatoRede -Lista $Candidatos -CaminhoRede "\\$HostLimpo\$Compartilhamento"
+    }
+
+    $TextoCandidatos = @($Candidatos) -join ", "
+    LogMsg "Compartilhamentos candidatos para localizar TekAplicacao.exe: $TextoCandidatos"
+
+    return @($Candidatos)
 }
 
 function ObterHostDeCaminhoRede {
