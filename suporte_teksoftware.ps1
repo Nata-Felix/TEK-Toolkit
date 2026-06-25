@@ -32,6 +32,8 @@ $CertificadoZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/relea
 $GbasZip = Join-Path $Base "GBAS_FP_NOVO.zip"
 $GbasZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/GBAS_FP_NOVO.zip"
 $Net48Url = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/dotnet48.exe"
+$RadminVpnExe = Join-Path $Base "Radmin_VPN_2.0.4899.9.exe"
+$RadminVpnUrl = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe"
 $FarmaciaPopularPortalUrl = "https://farmaciapopular-portal.saude.gov.br/farmaciapopular-portal/login.jsf"
 
 $RaizTekSoftware = "C:\TekSoftware"
@@ -664,6 +666,83 @@ function ConfigurarSslTlsSefaz {
     VerificarCertificadosClienteSefaz
     TestarConexaoSefazTls12
     LogMsg "Procedimento SSL/TLS 1.2 SEFAZ finalizado."
+}
+
+function BaixarRadminVpnSeNecessario {
+    if (Test-Path $RadminVpnExe) {
+        return
+    }
+
+    LogMsg "Arquivo Radmin VPN nao encontrado na pasta temporaria. Baixando do site oficial..."
+    Invoke-WebRequest -UseBasicParsing -Uri $RadminVpnUrl -OutFile $RadminVpnExe
+    LogMsg "Radmin VPN baixado."
+}
+
+function ObterExecutavelRadminVpn {
+    $Candidatos = @()
+
+    if (![string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+        $Candidatos += (Join-Path ${env:ProgramFiles(x86)} "Radmin VPN\RvRvpnGui.exe")
+    }
+
+    if (![string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $Candidatos += (Join-Path $env:ProgramFiles "Radmin VPN\RvRvpnGui.exe")
+    }
+
+    foreach ($Candidato in $Candidatos) {
+        if (Test-Path $Candidato) {
+            return $Candidato
+        }
+    }
+
+    $Encontrado = Get-ChildItem -Path @(${env:ProgramFiles(x86)}, $env:ProgramFiles) -Filter "RvRvpnGui.exe" -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match "\\Radmin VPN\\" } |
+        Select-Object -First 1
+
+    if ($Encontrado) {
+        return $Encontrado.FullName
+    }
+
+    return ""
+}
+
+function AbrirRadminVpn {
+    $Executavel = ObterExecutavelRadminVpn
+
+    if ([string]::IsNullOrWhiteSpace($Executavel)) {
+        LogMsg "AVISO: RvRvpnGui.exe nao localizado para abrir a interface do Radmin VPN."
+        return
+    }
+
+    LogMsg "Abrindo interface do Radmin VPN: $Executavel"
+    Start-Process -FilePath $Executavel -ErrorAction Stop
+}
+
+function InstalarRadminVpn {
+    BaixarRadminVpnSeNecessario
+
+    if (!(Test-Path $RadminVpnExe)) {
+        throw "Instalador do Radmin VPN nao encontrado: $RadminVpnExe"
+    }
+
+    Unblock-File -LiteralPath $RadminVpnExe -ErrorAction SilentlyContinue
+
+    $InstallLog = Join-Path $Base "RadminVPN-Install.log"
+    $Argumentos = "/VERYSILENT /NORESTART /LOG=`"$InstallLog`""
+
+    LogMsg "Instalando Radmin VPN em modo silencioso."
+    LogMsg "Arquivo: $RadminVpnExe"
+    LogMsg "Argumentos: $Argumentos"
+
+    $Processo = Start-Process -FilePath $RadminVpnExe -ArgumentList $Argumentos -Wait -PassThru -ErrorAction Stop
+    LogMsg "Instalador Radmin VPN finalizado. ExitCode: $($Processo.ExitCode). Log: $InstallLog"
+
+    if ($Processo.ExitCode -ne 0 -and $Processo.ExitCode -ne 3010) {
+        throw "Instalacao do Radmin VPN retornou codigo $($Processo.ExitCode)."
+    }
+
+    Start-Sleep -Seconds 2
+    AbrirRadminVpn
 }
 
 function BaixarGbasSeNecessario {
@@ -3355,6 +3434,11 @@ foreach ($Acao in $ListaAcoes) {
         "farmaciapopular" {
             ExecutarPasso "Instalar Farmacia Popular GBAS" {
                 InstalarFarmaciaPopularGbas
+            }
+        }
+        "radminvpn" {
+            ExecutarPassoAdmin "Instalar Radmin VPN" {
+                InstalarRadminVpn
             }
         }
         "firebird" {

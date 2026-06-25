@@ -35,6 +35,7 @@ namespace TekSoftwareSuporte
         private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/main";
         private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
         private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
+        private const string RadminVpnUrl = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe";
 
         private readonly Color blue = Color.FromArgb(0, 92, 190);
         private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
@@ -201,12 +202,12 @@ namespace TekSoftwareSuporte
             root.Controls.Add(actionsPanel);
 
             int y = 8;
-            AddSection(actionsPanel, "Rede e acesso", ref y);
+            AddSection(actionsPanel, "Rede e acesso", SectionIconKind.Network, ref y);
             AddAction(actionsPanel, "rede", "Configurar rede avancada", "Ativa servicos, firewall de rede, bindings e parametros de compartilhamento.", ref y);
             AddAction(actionsPanel, "credencial", "Criar credencial SERVIDOR", "Cria credencial SERVIDOR com usuario convidado e senha vazia.", ref y);
             AddAction(actionsPanel, "mapear", "Mapear TekSoftware", "Remove mapeamentos TekSoftware antigos, usa host informado e escolhe Z:, Y:, X:...", ref y);
 
-            AddSection(actionsPanel, "Certificados", ref y);
+            AddSection(actionsPanel, "Certificados", SectionIconKind.Certificate, ref y);
             AddAction(actionsPanel, "certificados", "Instalar cadeia de certificado", "Baixa o zip do release e importa .cer, .sst e .p7b em Autoridades Raiz Confiaveis.", ref y);
             sefazTlsActionOption = AddAction(actionsPanel, "ssltlssefaz", "SSL/TLS 1.2 SEFAZ", "Ativa TLS 1.2, configura .NET/WinHTTP, seleciona UTC, sincroniza hora e testa conexao SEFAZ.", ref y);
             sefazTlsActionOption.CheckBox.CheckedChanged += delegate
@@ -220,11 +221,14 @@ namespace TekSoftwareSuporte
                 }
             };
 
-            AddSection(actionsPanel, "Aplicativos", ref y);
+            AddSection(actionsPanel, "Aplicativos", SectionIconKind.Apps, ref y);
             AddAction(actionsPanel, "firewall", "Adicionar excecao no firewall", "Executa os BATs e cria regras para executaveis TekSoftware encontrados.", ref y);
             AddAction(actionsPanel, "farmaciapopular", "Instalar Farmacia Popular GBAS", "Baixa o GBAS, copia para TekFarma, abre a identificacao do terminal e o portal.", ref y);
 
-            AddSection(actionsPanel, "Servidor", ref y);
+            AddSection(actionsPanel, "Softwares", SectionIconKind.Software, ref y);
+            AddAction(actionsPanel, "radminvpn", "Instalar Radmin VPN", "Baixa e instala Radmin VPN em modo silencioso, depois abre a interface para criar a rede.", ref y);
+
+            AddSection(actionsPanel, "Servidor", SectionIconKind.Server, ref y);
             AddAction(actionsPanel, "firebird", "Reinstalar Firebird", "Remove Firebird atual, reinstala 2.5.9 e configura recuperacao em 3 tentativas.", ref y);
             serverMigrationActionOption = AddAction(actionsPanel, "trocaservidor", "Troca de servidor", "Assistente para preparar novo servidor ou servidor antigo com fluxo humano.", ref y);
             serverMigrationActionOption.CheckBox.CheckedChanged += delegate
@@ -239,7 +243,7 @@ namespace TekSoftwareSuporte
                 }
             };
 
-            AddSection(actionsPanel, "Impressoras", ref y);
+            AddSection(actionsPanel, "Impressoras", SectionIconKind.Printer, ref y);
             printerActionOption = AddAction(actionsPanel, "impressora", "Instalar impressora", "Seleciona marca/modelo, baixa somente o ZIP necessario e abre o instalador.", ref y);
             printerActionOption.CheckBox.CheckedChanged += delegate
             {
@@ -253,7 +257,7 @@ namespace TekSoftwareSuporte
                 }
             };
 
-            AddSection(actionsPanel, "Autonomia Windows", ref y);
+            AddSection(actionsPanel, "Autonomia Windows", SectionIconKind.Windows, ref y);
             AddAction(actionsPanel, "net35", "Instalar .NET 3.5", "Ativa o recurso NetFX3 pelo DISM, tentando C:\\ e depois Windows Update.", ref y);
             AddAction(actionsPanel, "net48", "Instalar .NET 4.8", "Instala o .NET Framework 4.8 offline usando o instalador do release.", ref y);
             AddAction(actionsPanel, "portacom", "Resetar portas COM", "Remove o ComDB para liberar portas COM reservadas. Pode exigir reinicio.", ref y);
@@ -270,13 +274,21 @@ namespace TekSoftwareSuporte
             BuildProgressPanel(root);
         }
 
-        private void AddSection(Panel parent, string text, ref int y)
+        private void AddSection(Panel parent, string text, SectionIconKind iconKind, ref int y)
         {
+            SectionIcon icon = new SectionIcon(iconKind);
+            icon.Left = 12;
+            icon.Top = y + 1;
+            icon.Width = 18;
+            icon.Height = 18;
+            icon.ForeColor = blue;
+            parent.Controls.Add(icon);
+
             Label label = new Label();
             label.Text = text;
-            label.Left = 12;
+            label.Left = 38;
             label.Top = y;
-            label.Width = 460;
+            label.Width = 430;
             label.Height = 22;
             label.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             label.ForeColor = blue;
@@ -843,6 +855,11 @@ namespace TekSoftwareSuporte
             if (plan.ContainsAction("net48"))
             {
                 plan.Downloads.Add(new DownloadItem(BaseUrl + "/dotnet48.exe", "dotnet48.exe", "dotnet48.exe"));
+            }
+
+            if (plan.ContainsAction("radminvpn"))
+            {
+                plan.Downloads.Add(new DownloadItem(RadminVpnUrl, "Radmin_VPN_2.0.4899.9.exe", "Radmin VPN"));
             }
 
             if (plan.ContainsAction("impressora"))
@@ -2450,6 +2467,131 @@ namespace TekSoftwareSuporte
 
                 return Name + "  |  " + DriverName;
             }
+        }
+    }
+
+    internal enum SectionIconKind
+    {
+        Network,
+        Certificate,
+        Apps,
+        Software,
+        Server,
+        Printer,
+        Windows
+    }
+
+    internal sealed class SectionIcon : Panel
+    {
+        private readonly SectionIconKind kind;
+
+        public SectionIcon(SectionIconKind kind)
+        {
+            this.kind = kind;
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            using (Pen p = new Pen(ForeColor, 1.8F))
+            using (Brush b = new SolidBrush(ForeColor))
+            {
+                switch (kind)
+                {
+                    case SectionIconKind.Network:
+                        DrawNetwork(e.Graphics, p, b);
+                        break;
+                    case SectionIconKind.Certificate:
+                        DrawCertificate(e.Graphics, p, b);
+                        break;
+                    case SectionIconKind.Apps:
+                        DrawApps(e.Graphics, p, b);
+                        break;
+                    case SectionIconKind.Software:
+                        DrawSoftware(e.Graphics, p, b);
+                        break;
+                    case SectionIconKind.Server:
+                        DrawServer(e.Graphics, p, b);
+                        break;
+                    case SectionIconKind.Printer:
+                        DrawPrinter(e.Graphics, p, b);
+                        break;
+                    default:
+                        DrawWindows(e.Graphics, p, b);
+                        break;
+                }
+            }
+        }
+
+        private void DrawNetwork(Graphics g, Pen p, Brush b)
+        {
+            g.DrawRectangle(p, 7, 1, 4, 4);
+            g.DrawRectangle(p, 1, 12, 4, 4);
+            g.DrawRectangle(p, 13, 12, 4, 4);
+            g.DrawLine(p, 9, 5, 9, 9);
+            g.DrawLine(p, 9, 9, 3, 12);
+            g.DrawLine(p, 9, 9, 15, 12);
+        }
+
+        private void DrawCertificate(Graphics g, Pen p, Brush b)
+        {
+            g.DrawRectangle(p, 3, 1, 12, 14);
+            g.DrawLine(p, 6, 5, 12, 5);
+            g.DrawLine(p, 6, 8, 12, 8);
+            g.FillEllipse(b, 6, 10, 6, 6);
+            g.DrawLine(p, 7, 15, 6, 17);
+            g.DrawLine(p, 11, 15, 12, 17);
+        }
+
+        private void DrawApps(Graphics g, Pen p, Brush b)
+        {
+            g.DrawRectangle(p, 2, 2, 5, 5);
+            g.DrawRectangle(p, 11, 2, 5, 5);
+            g.DrawRectangle(p, 2, 11, 5, 5);
+            g.DrawRectangle(p, 11, 11, 5, 5);
+        }
+
+        private void DrawSoftware(Graphics g, Pen p, Brush b)
+        {
+            Point[] box = new Point[]
+            {
+                new Point(9, 1), new Point(16, 5), new Point(16, 13),
+                new Point(9, 17), new Point(2, 13), new Point(2, 5)
+            };
+            g.DrawPolygon(p, box);
+            g.DrawLine(p, 2, 5, 9, 9);
+            g.DrawLine(p, 16, 5, 9, 9);
+            g.DrawLine(p, 9, 9, 9, 17);
+        }
+
+        private void DrawServer(Graphics g, Pen p, Brush b)
+        {
+            g.DrawRectangle(p, 3, 2, 12, 5);
+            g.DrawRectangle(p, 3, 10, 12, 5);
+            g.FillEllipse(b, 5, 4, 1.8F, 1.8F);
+            g.FillEllipse(b, 5, 12, 1.8F, 1.8F);
+            g.DrawLine(p, 8, 4, 13, 4);
+            g.DrawLine(p, 8, 12, 13, 12);
+        }
+
+        private void DrawPrinter(Graphics g, Pen p, Brush b)
+        {
+            g.DrawRectangle(p, 4, 1, 10, 5);
+            g.DrawRectangle(p, 2, 7, 14, 7);
+            g.DrawRectangle(p, 5, 12, 8, 5);
+            g.FillEllipse(b, 13, 9, 1.8F, 1.8F);
+        }
+
+        private void DrawWindows(Graphics g, Pen p, Brush b)
+        {
+            g.DrawRectangle(p, 2, 2, 6, 6);
+            g.DrawRectangle(p, 10, 2, 6, 6);
+            g.DrawRectangle(p, 2, 10, 6, 6);
+            g.DrawRectangle(p, 10, 10, 6, 6);
         }
     }
 
