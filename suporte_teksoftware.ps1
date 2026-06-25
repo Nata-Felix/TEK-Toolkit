@@ -718,6 +718,167 @@ function AbrirRadminVpn {
     Start-Process -FilePath $Executavel -ErrorAction Stop
 }
 
+function PararProcessosRadminVpn {
+    $Servicos = @("RvControlSvc", "RadminVPN")
+
+    foreach ($Servico in $Servicos) {
+        try {
+            $Svc = Get-Service -Name $Servico -ErrorAction SilentlyContinue
+            if ($Svc -and $Svc.Status -ne "Stopped") {
+                LogMsg "Parando servico Radmin VPN: $Servico"
+                Stop-Service -Name $Servico -Force -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+        }
+    }
+
+    foreach ($Nome in @("RvRvpnGui", "RvControlSvc", "RadminVPN", "Radmin_VPN_2.0.4899.9")) {
+        try {
+            Get-Process -Name $Nome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        }
+        catch {
+        }
+    }
+}
+
+function ObterInstalacoesRadminVpn {
+    $Paths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    foreach ($Path in $Paths) {
+        Get-ItemProperty -Path $Path -ErrorAction SilentlyContinue | Where-Object {
+            $_.DisplayName -match "(?i)Radmin\s*VPN"
+        }
+    }
+}
+
+function ExecutarComandoDesinstalacaoRadmin {
+    param(
+        [string]$Comando,
+        [string]$DisplayName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Comando)) {
+        return $false
+    }
+
+    LogMsg "Executando desinstalador Radmin VPN ($DisplayName): $Comando"
+
+    $Exe = ""
+    $Args = ""
+
+    if ($Comando -match '^\s*"([^"]+)"\s*(.*)$') {
+        $Exe = $Matches[1]
+        $Args = $Matches[2]
+    }
+    elseif ($Comando.Trim() -match '^\s*(.+?\.exe)\s*(.*)$') {
+        $Exe = $Matches[1]
+        $Args = $Matches[2]
+    }
+    else {
+        $Partes = $Comando.Trim().Split(" ", 2)
+        $Exe = $Partes[0]
+        if ($Partes.Count -gt 1) {
+            $Args = $Partes[1]
+        }
+    }
+
+    $Exe = [Environment]::ExpandEnvironmentVariables($Exe.Trim())
+    $Args = $Args.Trim()
+
+    if ($Exe -match "(?i)msiexec(\.exe)?$") {
+        if ($Args -match "(?i)(^|\s)/I\s*\{") {
+            $Args = [regex]::Replace($Args, "(?i)(^|\s)/I(?=\s*\{)", '$1/X', 1)
+            LogMsg "Comando MSI ajustado para remocao: $Exe $Args"
+        }
+
+        if ($Args -notmatch "(?i)(/q|/quiet|/qn)") {
+            $Args += " /qn"
+        }
+
+        if ($Args -notmatch "(?i)norestart") {
+            $Args += " /norestart"
+        }
+    }
+    else {
+        if ($Args -notmatch "(?i)/(VERYSILENT|SILENT|quiet|qn)") {
+            $Args += " /VERYSILENT"
+        }
+
+        if ($Args -notmatch "(?i)NORESTART") {
+            $Args += " /NORESTART"
+        }
+    }
+
+    try {
+        $Processo = Start-Process -FilePath $Exe -ArgumentList $Args -Wait -PassThru -ErrorAction Stop
+        LogMsg "Desinstalador Radmin VPN finalizado. ExitCode: $($Processo.ExitCode)"
+        return ($Processo.ExitCode -eq 0 -or $Processo.ExitCode -eq 1605 -or $Processo.ExitCode -eq 3010)
+    }
+    catch {
+        LogMsg "AVISO: Falha ao executar desinstalador Radmin VPN: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function RemoverPastasRadminVpn {
+    $Pastas = @()
+
+    if (![string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+        $Pastas += (Join-Path ${env:ProgramFiles(x86)} "Radmin VPN")
+    }
+
+    if (![string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $Pastas += (Join-Path $env:ProgramFiles "Radmin VPN")
+    }
+
+    foreach ($Pasta in @($Pastas | Select-Object -Unique)) {
+        if (Test-Path $Pasta) {
+            try {
+                LogMsg "Removendo pasta antiga do Radmin VPN: $Pasta"
+                Remove-Item -LiteralPath $Pasta -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+                LogMsg "AVISO: Nao foi possivel remover pasta ${Pasta}: $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
+function RemoverRadminVpnExistente {
+    LogMsg "Verificando instalacao existente do Radmin VPN."
+    PararProcessosRadminVpn
+
+    $Instalacoes = @(ObterInstalacoesRadminVpn)
+
+    if ($Instalacoes.Count -eq 0) {
+        LogMsg "Nenhuma instalacao anterior do Radmin VPN encontrada no registro."
+    }
+
+    foreach ($App in $Instalacoes) {
+        $Nome = if ([string]::IsNullOrWhiteSpace($App.DisplayName)) { "Radmin VPN" } else { $App.DisplayName }
+        $Comando = $App.QuietUninstallString
+
+        if ([string]::IsNullOrWhiteSpace($Comando)) {
+            $Comando = $App.UninstallString
+        }
+
+        if (![string]::IsNullOrWhiteSpace($Comando)) {
+            [void](ExecutarComandoDesinstalacaoRadmin -Comando $Comando -DisplayName $Nome)
+        }
+        else {
+            LogMsg "AVISO: Instalacao encontrada sem comando de desinstalacao: $Nome"
+        }
+    }
+
+    Start-Sleep -Seconds 2
+    PararProcessosRadminVpn
+    RemoverPastasRadminVpn
+}
+
 function InstalarRadminVpn {
     BaixarRadminVpnSeNecessario
 
@@ -726,6 +887,7 @@ function InstalarRadminVpn {
     }
 
     Unblock-File -LiteralPath $RadminVpnExe -ErrorAction SilentlyContinue
+    RemoverRadminVpnExistente
 
     $InstallLog = Join-Path $Base "RadminVPN-Install.log"
     $Argumentos = "/VERYSILENT /NORESTART /LOG=`"$InstallLog`""
