@@ -4,7 +4,9 @@ param(
     [string]$ImpressoraMarca = "",
     [string]$ImpressoraModelo = "",
     [string]$ImpressoraArquivo = "",
-    [string]$ImpressoraInstalador = ""
+    [string]$ImpressoraInstalador = "",
+    [string]$RemoverImpressoras = "",
+    [string]$RemoverDriversImpressora = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -1010,6 +1012,78 @@ function IniciarInstaladorImpressora {
     }
 }
 
+function ConverterListaArgumentos {
+    param([string]$Texto)
+
+    if ([string]::IsNullOrWhiteSpace($Texto)) {
+        return @()
+    }
+
+    @($Texto -split [regex]::Escape("|||") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function RemoverImpressorasEDriversSelecionados {
+    $Impressoras = @(ConverterListaArgumentos -Texto $RemoverImpressoras)
+    $Drivers = @(ConverterListaArgumentos -Texto $RemoverDriversImpressora)
+
+    if ($Impressoras.Count -eq 0 -and $Drivers.Count -eq 0) {
+        LogMsg "Nenhuma impressora ou driver atual selecionado para remocao."
+        return
+    }
+
+    LogMsg "Remocao previa selecionada: $($Impressoras.Count) impressora(s), $($Drivers.Count) driver(s)."
+
+    foreach ($NomeImpressora in $Impressoras) {
+        try {
+            $Impressora = Get-Printer -Name $NomeImpressora -ErrorAction SilentlyContinue
+
+            if ($null -eq $Impressora) {
+                LogMsg "AVISO: Impressora nao encontrada para remover: $NomeImpressora"
+                continue
+            }
+
+            LogMsg "Removendo impressora: $NomeImpressora"
+            Remove-Printer -Name $NomeImpressora -ErrorAction Stop
+            LogMsg "Impressora removida: $NomeImpressora"
+        }
+        catch {
+            LogMsg "AVISO: Falha ao remover impressora ${NomeImpressora}: $($_.Exception.Message)"
+        }
+    }
+
+    if ($Impressoras.Count -gt 0) {
+        ResetarImpressora
+    }
+
+    foreach ($NomeDriver in $Drivers) {
+        try {
+            $Driver = Get-PrinterDriver -Name $NomeDriver -ErrorAction SilentlyContinue
+
+            if ($null -eq $Driver) {
+                LogMsg "AVISO: Driver de impressora nao encontrado para remover: $NomeDriver"
+                continue
+            }
+
+            LogMsg "Removendo driver de impressora: $NomeDriver"
+            Remove-PrinterDriver -Name $NomeDriver -ErrorAction Stop
+            LogMsg "Driver de impressora removido: $NomeDriver"
+        }
+        catch {
+            LogMsg "AVISO: Falha ao remover driver ${NomeDriver}: $($_.Exception.Message)"
+            LogMsg "Tentando resetar spooler e remover novamente: $NomeDriver"
+
+            try {
+                ResetarImpressora
+                Remove-PrinterDriver -Name $NomeDriver -ErrorAction Stop
+                LogMsg "Driver de impressora removido apos reset do spooler: $NomeDriver"
+            }
+            catch {
+                LogMsg "AVISO: Nao foi possivel remover driver ${NomeDriver}: $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 function InstalarDriverImpressora {
     if ([string]::IsNullOrWhiteSpace($ImpressoraArquivo)) {
         throw "Nenhum driver de impressora foi selecionado na GUI."
@@ -1021,6 +1095,8 @@ function InstalarDriverImpressora {
     if (!(Test-Path $Zip)) {
         throw "Pacote de driver nao encontrado: $Zip"
     }
+
+    RemoverImpressorasEDriversSelecionados
 
     $NomeBase = [System.IO.Path]::GetFileNameWithoutExtension($ArquivoSeguro)
     $DestinoTemp = Join-Path $Base ("driver_impressora_" + $NomeBase + "_" + (Get-Date -Format "yyyyMMddHHmmss"))
@@ -2355,6 +2431,7 @@ LogMsg "Acoes recebidas: $Acoes"
 LogMsg "HostServidor recebido: $HostServidor"
 if (![string]::IsNullOrWhiteSpace($ImpressoraArquivo)) {
     LogMsg "Impressora recebida: $ImpressoraMarca / $ImpressoraModelo / $ImpressoraArquivo"
+    LogMsg "Remocao previa recebida: impressoras=$(@(ConverterListaArgumentos -Texto $RemoverImpressoras).Count), drivers=$(@(ConverterListaArgumentos -Texto $RemoverDriversImpressora).Count)"
 }
 LogMsg "Base: $Base"
 
