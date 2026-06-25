@@ -907,20 +907,23 @@ function DesativarFirewallWindows {
 }
 
 function ResetarImpressora {
-    PararServicoManutencao -Nome "spooler"
+    LogMsg "Parando o servico de spooler de impressao..."
+    ExecutarComandoManutencao -Nome "Parar spooler de impressao" -Arquivo "net.exe" -Argumentos @("stop", "spooler") -IgnorarErro | Out-Null
 
     $Fila = Join-Path $env:SystemRoot "System32\Spool\Printers"
 
     if (Test-Path $Fila) {
-        LogMsg "Limpando fila de impressao: $Fila"
-        Get-ChildItem -LiteralPath $Fila -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        LogMsg "Limpando a fila de impressao..."
+        $PadraoFila = Join-Path $Fila "*"
+        ExecutarComandoManutencao -Nome "Limpar fila de impressao" -Arquivo "cmd.exe" -Argumentos @("/c", "del", "/Q", "/F", "/S", "`"$PadraoFila`"") -IgnorarErro | Out-Null
     }
     else {
         LogMsg "Pasta da fila de impressao nao encontrada: $Fila"
     }
 
-    IniciarServicoManutencao -Nome "spooler"
-    LogMsg "Spooler de impressao resetado."
+    LogMsg "Iniciando o servico de spooler de impressao..."
+    ExecutarComandoManutencao -Nome "Iniciar spooler de impressao" -Arquivo "net.exe" -Argumentos @("start", "spooler")
+    LogMsg "Spooler de impressao resetado com sucesso."
 }
 
 function InstalarGpeditMsc {
