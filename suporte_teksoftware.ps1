@@ -52,6 +52,24 @@ function ExecutarPasso {
     }
 }
 
+function ExecutarPassoAdmin {
+    param(
+        [string]$Nome,
+        [scriptblock]$Acao
+    )
+
+    if (-not $script:ExecutandoComoAdmin) {
+        LogMsg "====================================="
+        LogMsg "INICIANDO: $Nome"
+        LogMsg "ERRO no passo '$Nome': esta acao precisa executar como Administrador."
+        LogMsg "Continuando para o proximo passo..."
+        LogMsg "FINALIZADO: $Nome"
+        return
+    }
+
+    ExecutarPasso -Nome $Nome -Acao $Acao
+}
+
 function Set-Dword {
     param(
         [string]$Path,
@@ -190,6 +208,26 @@ function CriarCredencialServidor {
     & cmdkey.exe /delete:$HostCredencial 2>&1 | Out-Null
     & cmd.exe /c "echo.|cmdkey.exe /add:$HostCredencial /user:$UsuarioCredencial" 2>&1 | Out-Null
     LogMsg "Credencial do Windows configurada: host=$HostCredencial usuario=$UsuarioCredencial senha=vazia"
+}
+
+function CriarCredencialConvidadoParaHost {
+    param([string]$HostCredencial)
+
+    if ([string]::IsNullOrWhiteSpace($HostCredencial)) {
+        return
+    }
+
+    $HostCredencial = $HostCredencial.Trim("\").Trim()
+
+    try {
+        LogMsg "Configurando credencial convidado para ${HostCredencial}."
+        & cmdkey.exe /delete:$HostCredencial 2>&1 | Out-Null
+        & cmd.exe /c "echo.|cmdkey.exe /add:$HostCredencial /user:convidado" 2>&1 | Out-Null
+        LogMsg "Credencial configurada para ${HostCredencial}: usuario=convidado senha=vazia"
+    }
+    catch {
+        LogMsg "AVISO: Falha ao configurar credencial para ${HostCredencial}: $($_.Exception.Message)"
+    }
 }
 
 function BaixarCadeiaCertificadoSeNecessario {
@@ -771,7 +809,9 @@ function InstalarGpeditMsc {
 
 function ObterMapeamentosTekSoftware {
     @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=4" -ErrorAction SilentlyContinue | Where-Object {
-        $_.ProviderName -match "^\\\\[^\\]+\\TekSoftware\\?$"
+        $_.ProviderName -match "^\\\\[^\\]+\\TekSoftware\\?$" -or
+        (Test-Path (Join-Path ($_.DeviceID + "\") "TekSoftware\TekFarma\TekAplicacao.exe")) -or
+        (Test-Path (Join-Path ($_.DeviceID + "\") "TekFarma\TekAplicacao.exe"))
     })
 }
 
@@ -788,15 +828,33 @@ function RemoverMapeamentosTekSoftware {
     }
 }
 
+function EncontrarTekAplicacaoEmDrive {
+    param([string]$Drive)
+
+    $Candidatos = @(
+        (Join-Path "$Drive\" "TekFarma\TekAplicacao.exe"),
+        (Join-Path "$Drive\" "TekSoftware\TekFarma\TekAplicacao.exe"),
+        (Join-Path "$Drive\" "TekAplicacao.exe")
+    )
+
+    foreach ($Candidato in $Candidatos) {
+        if (Test-Path $Candidato) {
+            return $Candidato
+        }
+    }
+
+    return ""
+}
+
 function CriarAtalhoTekFarmaMapeado {
     param([string]$Drive)
 
-    $Alvo = Join-Path "$Drive\" "TekFarma\TekAplicacao.exe"
+    $Alvo = EncontrarTekAplicacaoEmDrive -Drive $Drive
     $Desktop = [Environment]::GetFolderPath("Desktop")
     $Atalho = Join-Path $Desktop "TekFarma.lnk"
 
-    if (!(Test-Path $Alvo)) {
-        LogMsg "AVISO: Executavel TekFarma nao encontrado para atalho: $Alvo"
+    if ([string]::IsNullOrWhiteSpace($Alvo)) {
+        LogMsg "AVISO: Executavel TekFarma nao encontrado no mapeamento $Drive"
         return
     }
 
@@ -818,7 +876,7 @@ function TentarMapearTekSoftware {
         $Drive = "$Letra`:"
         $Root = "$Drive\"
 
-        if (Test-Path $Root) {
+        if ((Get-PSDrive -Name $Letra -ErrorAction SilentlyContinue) -or (Test-Path $Root)) {
             LogMsg "Letra ocupada, tentando proxima: $Drive"
             continue
         }
@@ -844,25 +902,71 @@ function TentarMapearTekSoftware {
     return ""
 }
 
+function ObterCandidatosRedeTekSoftware {
+    param([string]$HostInformado)
+
+    $Valor = ""
+
+    if ($null -ne $HostInformado) {
+        $Valor = $HostInformado.Trim()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Valor)) {
+        $Valor = "SERVIDOR"
+    }
+
+    if ($Valor.StartsWith("\\")) {
+        return @($Valor.TrimEnd("\"))
+    }
+
+    if ($Valor.Contains("\")) {
+        return @("\\" + $Valor.Trim("\"))
+    }
+
+    $HostLimpo = $Valor.Trim("\")
+
+    return @(
+        "\\$HostLimpo\TekSoftware",
+        "\\$HostLimpo\Tek"
+    )
+}
+
+function ObterHostDeCaminhoRede {
+    param([string]$CaminhoRede)
+
+    if ($CaminhoRede -match "^\\\\([^\\]+)\\") {
+        return $Matches[1]
+    }
+
+    return ""
+}
+
 function MapearTekSoftware {
     param([string]$HostInformado)
 
-    $HostNormalizado = $HostInformado.Trim()
-    if ([string]::IsNullOrWhiteSpace($HostNormalizado)) {
-        $HostNormalizado = "SERVIDOR"
-    }
-
     RemoverMapeamentosTekSoftware
 
-    $CaminhoRede = "\\$HostNormalizado\TekSoftware"
-    $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede
+    foreach ($CaminhoRede in @(ObterCandidatosRedeTekSoftware -HostInformado $HostInformado)) {
+        $HostRede = ObterHostDeCaminhoRede -CaminhoRede $CaminhoRede
+        CriarCredencialConvidadoParaHost -HostCredencial $HostRede
 
-    if ([string]::IsNullOrWhiteSpace($LetraLivre)) {
-        LogMsg "AVISO: Nao foi possivel mapear $CaminhoRede entre Z: e D:."
-        return
+        LogMsg "Testando caminho de rede: $CaminhoRede"
+
+        if (!(Test-Path $CaminhoRede)) {
+            LogMsg "AVISO: Caminho de rede nao acessivel agora: $CaminhoRede"
+        }
+
+        $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede
+
+        if (![string]::IsNullOrWhiteSpace($LetraLivre)) {
+            CriarAtalhoTekFarmaMapeado -Drive $LetraLivre
+            return
+        }
+
+        LogMsg "AVISO: Nao foi possivel mapear $CaminhoRede. Tentando proximo candidato..."
     }
 
-    CriarAtalhoTekFarmaMapeado -Drive $LetraLivre
+    LogMsg "AVISO: Nao foi possivel mapear TekSoftware entre Z: e D:."
 }
 
 function ObterRaizesBuscaTek {
@@ -1230,17 +1334,15 @@ LogMsg "Acoes recebidas: $Acoes"
 LogMsg "HostServidor recebido: $HostServidor"
 LogMsg "Base: $Base"
 
-if (!(Test-Admin)) {
-    LogMsg "ERRO: Este script precisa rodar como Administrador."
-    exit 1
-}
+$script:ExecutandoComoAdmin = Test-Admin
+LogMsg "Executando como administrador: $script:ExecutandoComoAdmin"
 
 $ListaAcoes = @($Acoes.Split(",") | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
 
 foreach ($Acao in $ListaAcoes) {
     switch ($Acao) {
         "rede" {
-            ExecutarPasso "Configurar rede avancada" {
+            ExecutarPassoAdmin "Configurar rede avancada" {
                 ConfigurarRedeAvancada
             }
         }
@@ -1250,7 +1352,7 @@ foreach ($Acao in $ListaAcoes) {
             }
         }
         "certificados" {
-            ExecutarPasso "Instalar cadeia de certificado" {
+            ExecutarPassoAdmin "Instalar cadeia de certificado" {
                 InstalarCadeiaCertificado
             }
         }
@@ -1260,7 +1362,7 @@ foreach ($Acao in $ListaAcoes) {
             }
         }
         "firewall" {
-            ExecutarPasso "Adicionar excecao no firewall" {
+            ExecutarPassoAdmin "Adicionar excecao no firewall" {
                 AdicionarExcecoesFirewall
             }
         }
@@ -1270,47 +1372,47 @@ foreach ($Acao in $ListaAcoes) {
             }
         }
         "firebird" {
-            ExecutarPasso "Reinstalar Firebird" {
+            ExecutarPassoAdmin "Reinstalar Firebird" {
                 ReinstalarFirebird
             }
         }
         "net35" {
-            ExecutarPasso "Instalar .NET Framework 3.5" {
+            ExecutarPassoAdmin "Instalar .NET Framework 3.5" {
                 InstalarNet35
             }
         }
         "portacom" {
-            ExecutarPasso "Resetar portas COM" {
+            ExecutarPassoAdmin "Resetar portas COM" {
                 ResetarPortasCom
             }
         }
         "removersenhacompartilhamento" {
-            ExecutarPasso "Remover senha de compartilhamento" {
+            ExecutarPassoAdmin "Remover senha de compartilhamento" {
                 RemoverSenhaCompartilhamento
             }
         }
         "windowsupdatefix" {
-            ExecutarPasso "Corrigir Windows Update" {
+            ExecutarPassoAdmin "Corrigir Windows Update" {
                 CorrigirWindowsUpdate
             }
         }
         "cacheicone" {
-            ExecutarPasso "Aumentar cache de icones" {
+            ExecutarPassoAdmin "Aumentar cache de icones" {
                 AumentarCacheIcone
             }
         }
         "firewalloff" {
-            ExecutarPasso "Desativar Firewall do Windows" {
+            ExecutarPassoAdmin "Desativar Firewall do Windows" {
                 DesativarFirewallWindows
             }
         }
         "resetimpressora" {
-            ExecutarPasso "Resetar impressora" {
+            ExecutarPassoAdmin "Resetar impressora" {
                 ResetarImpressora
             }
         }
         "gpedit" {
-            ExecutarPasso "Instalar GPEDIT.MSC" {
+            ExecutarPassoAdmin "Instalar GPEDIT.MSC" {
                 InstalarGpeditMsc
             }
         }
