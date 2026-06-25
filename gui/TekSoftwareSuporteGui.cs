@@ -33,6 +33,8 @@ namespace TekSoftwareSuporte
         private const string DriversBaseUrl = "https://github.com/" + Repo + "/releases/download/" + DriversVersion;
         private const string DriversIndexUrl = DriversBaseUrl + "/drivers-impressoras.json";
         private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/main";
+        private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
+        private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
 
         private readonly Color blue = Color.FromArgb(0, 92, 190);
         private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
@@ -52,6 +54,8 @@ namespace TekSoftwareSuporte
         private readonly Label statusLabel = new Label();
         private readonly Label printerSelectionLabel = new Label();
         private readonly Button printerSelectButton = new Button();
+        private readonly Label serverMigrationSelectionLabel = new Label();
+        private readonly Button serverMigrationSelectButton = new Button();
         private readonly PictureBox logoBox = new PictureBox();
         private readonly ToolTip toolTip = new ToolTip();
 
@@ -63,15 +67,17 @@ namespace TekSoftwareSuporte
         private int totalUnits;
         private PrinterDriver selectedPrinter;
         private ActionOption printerActionOption;
+        private ServerMigrationPlan selectedServerMigration;
+        private ActionOption serverMigrationActionOption;
         private readonly List<string> selectedPrintersToRemove = new List<string>();
         private readonly List<string> selectedPrinterDriversToRemove = new List<string>();
 
         public SupportForm()
         {
             Text = "Suporte TekSoftware";
-            Width = 1024;
-            Height = 700;
-            MinimumSize = new Size(1024, 700);
+            Width = 1180;
+            Height = 840;
+            MinimumSize = new Size(1180, 840);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.White;
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
@@ -106,9 +112,9 @@ namespace TekSoftwareSuporte
         private void BuildHeader(Control root)
         {
             Panel header = new Panel();
-            header.Left = 24;
+            header.Left = 30;
             header.Top = 10;
-            header.Width = 958;
+            header.Width = 1120;
             header.Height = 130;
             header.BackColor = Color.White;
             root.Controls.Add(header);
@@ -157,7 +163,7 @@ namespace TekSoftwareSuporte
             Panel horizontal = new Panel();
             horizontal.Left = 0;
             horizontal.Top = 122;
-            horizontal.Width = 958;
+            horizontal.Width = 1120;
             horizontal.Height = 1;
             horizontal.BackColor = border;
             header.Controls.Add(horizontal);
@@ -169,7 +175,7 @@ namespace TekSoftwareSuporte
             selectLabel.Text = "Selecione as acoes de suporte";
             selectLabel.Left = 44;
             selectLabel.Top = 158;
-            selectLabel.Width = 360;
+            selectLabel.Width = 500;
             selectLabel.Height = 24;
             selectLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
             selectLabel.ForeColor = blue;
@@ -178,10 +184,11 @@ namespace TekSoftwareSuporte
             Panel actionsPanel = new Panel();
             actionsPanel.Left = 42;
             actionsPanel.Top = 186;
-            actionsPanel.Width = 336;
-            actionsPanel.Height = 268;
+            actionsPanel.Width = 520;
+            actionsPanel.Height = 530;
             actionsPanel.AutoScroll = true;
             actionsPanel.BackColor = Color.White;
+            actionsPanel.BorderStyle = BorderStyle.FixedSingle;
             actionsPanel.Paint += delegate(object sender, PaintEventArgs e)
             {
                 using (Pen p = new Pen(border))
@@ -206,6 +213,18 @@ namespace TekSoftwareSuporte
 
             AddSection(actionsPanel, "Servidor", ref y);
             AddAction(actionsPanel, "firebird", "Reinstalar Firebird", "Remove Firebird atual, reinstala 2.5.9 e configura recuperacao em 3 tentativas.", ref y);
+            serverMigrationActionOption = AddAction(actionsPanel, "trocaservidor", "Troca de servidor", "Assistente para preparar novo servidor ou servidor antigo com fluxo humano.", ref y);
+            serverMigrationActionOption.CheckBox.CheckedChanged += delegate
+            {
+                UpdateServerMigrationSelectionState();
+                if (serverMigrationActionOption.CheckBox.Checked && selectedServerMigration == null)
+                {
+                    if (!ShowServerMigrationDialog())
+                    {
+                        serverMigrationActionOption.CheckBox.Checked = false;
+                    }
+                }
+            };
 
             AddSection(actionsPanel, "Impressoras", ref y);
             printerActionOption = AddAction(actionsPanel, "impressora", "Instalar impressora", "Seleciona marca/modelo, baixa somente o ZIP necessario e abre o instalador.", ref y);
@@ -234,6 +253,7 @@ namespace TekSoftwareSuporte
 
             BuildHostPanel(root);
             BuildPrinterPanel(root);
+            BuildServerMigrationPanel(root);
             BuildProgressPanel(root);
         }
 
@@ -243,7 +263,7 @@ namespace TekSoftwareSuporte
             label.Text = text;
             label.Left = 12;
             label.Top = y;
-            label.Width = 280;
+            label.Width = 460;
             label.Height = 22;
             label.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             label.ForeColor = blue;
@@ -257,7 +277,7 @@ namespace TekSoftwareSuporte
             checkBox.Text = title;
             checkBox.Left = 18;
             checkBox.Top = y;
-            checkBox.Width = 285;
+            checkBox.Width = 460;
             checkBox.Height = 28;
             checkBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
             checkBox.ForeColor = Color.FromArgb(28, 36, 48);
@@ -269,65 +289,120 @@ namespace TekSoftwareSuporte
             return option;
         }
 
+        private Panel CreateCard(Control root, int left, int top, int width, int height)
+        {
+            Panel card = new Panel();
+            card.Left = left;
+            card.Top = top;
+            card.Width = width;
+            card.Height = height;
+            card.BackColor = Color.White;
+            card.BorderStyle = BorderStyle.FixedSingle;
+            root.Controls.Add(card);
+            return card;
+        }
+
         private void BuildHostPanel(Control root)
         {
+            Panel card = CreateCard(root, 586, 552, 554, 82);
+
             Label hostLabel = new Label();
             hostLabel.Text = "Host para mapeamento";
-            hostLabel.Left = 44;
-            hostLabel.Top = 468;
+            hostLabel.Left = 12;
+            hostLabel.Top = 8;
             hostLabel.Width = 190;
             hostLabel.Height = 22;
             hostLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             hostLabel.ForeColor = blue;
-            root.Controls.Add(hostLabel);
+            card.Controls.Add(hostLabel);
 
-            hostTextBox.Left = 42;
-            hostTextBox.Top = 492;
-            hostTextBox.Width = 150;
+            hostTextBox.Left = 12;
+            hostTextBox.Top = 36;
+            hostTextBox.Width = 180;
             hostTextBox.Height = 26;
             hostTextBox.Text = "SERVIDOR";
             hostTextBox.CharacterCasing = CharacterCasing.Upper;
-            root.Controls.Add(hostTextBox);
+            card.Controls.Add(hostTextBox);
 
-            AddHostButton(root, "SERVIDOR", 202);
-            AddHostButton(root, "SERVER", 262);
-            AddHostButton(root, "SERVERTEK", 314);
+            AddHostButton(card, "SERVIDOR", 208);
+            AddHostButton(card, "SERVER", 288);
+            AddHostButton(card, "SERVERTEK", 360);
         }
 
         private void BuildPrinterPanel(Control root)
         {
+            Panel card = CreateCard(root, 586, 646, 268, 70);
+
             Label printerLabel = new Label();
             printerLabel.Text = "Driver de impressora";
-            printerLabel.Left = 44;
-            printerLabel.Top = 526;
+            printerLabel.Left = 12;
+            printerLabel.Top = 8;
             printerLabel.Width = 190;
             printerLabel.Height = 22;
             printerLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             printerLabel.ForeColor = blue;
-            root.Controls.Add(printerLabel);
+            card.Controls.Add(printerLabel);
 
             printerSelectionLabel.Text = "Nenhuma impressora selecionada";
-            printerSelectionLabel.Left = 42;
-            printerSelectionLabel.Top = 550;
-            printerSelectionLabel.Width = 210;
+            printerSelectionLabel.Left = 12;
+            printerSelectionLabel.Top = 34;
+            printerSelectionLabel.Width = 154;
             printerSelectionLabel.Height = 26;
             printerSelectionLabel.AutoEllipsis = true;
             printerSelectionLabel.ForeColor = Color.FromArgb(38, 48, 64);
             printerSelectionLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point);
-            root.Controls.Add(printerSelectionLabel);
+            card.Controls.Add(printerSelectionLabel);
             toolTip.SetToolTip(printerSelectionLabel, printerSelectionLabel.Text);
 
             printerSelectButton.Text = "Selecionar";
-            printerSelectButton.Left = 262;
-            printerSelectButton.Top = 546;
-            printerSelectButton.Width = 116;
+            printerSelectButton.Left = 174;
+            printerSelectButton.Top = 30;
+            printerSelectButton.Width = 82;
             printerSelectButton.Height = 30;
             printerSelectButton.FlatStyle = FlatStyle.Flat;
             printerSelectButton.FlatAppearance.BorderColor = border;
             printerSelectButton.BackColor = Color.White;
             printerSelectButton.Enabled = false;
             printerSelectButton.Click += delegate { ShowPrinterSelectionDialog(); };
-            root.Controls.Add(printerSelectButton);
+            card.Controls.Add(printerSelectButton);
+        }
+
+        private void BuildServerMigrationPanel(Control root)
+        {
+            Panel card = CreateCard(root, 872, 646, 268, 70);
+
+            Label label = new Label();
+            label.Text = "Troca de servidor";
+            label.Left = 12;
+            label.Top = 8;
+            label.Width = 190;
+            label.Height = 22;
+            label.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            label.ForeColor = blue;
+            card.Controls.Add(label);
+
+            serverMigrationSelectionLabel.Text = "Nenhuma troca configurada";
+            serverMigrationSelectionLabel.Left = 12;
+            serverMigrationSelectionLabel.Top = 34;
+            serverMigrationSelectionLabel.Width = 154;
+            serverMigrationSelectionLabel.Height = 26;
+            serverMigrationSelectionLabel.AutoEllipsis = true;
+            serverMigrationSelectionLabel.ForeColor = Color.FromArgb(38, 48, 64);
+            serverMigrationSelectionLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point);
+            card.Controls.Add(serverMigrationSelectionLabel);
+            toolTip.SetToolTip(serverMigrationSelectionLabel, serverMigrationSelectionLabel.Text);
+
+            serverMigrationSelectButton.Text = "Configurar";
+            serverMigrationSelectButton.Left = 174;
+            serverMigrationSelectButton.Top = 30;
+            serverMigrationSelectButton.Width = 82;
+            serverMigrationSelectButton.Height = 30;
+            serverMigrationSelectButton.FlatStyle = FlatStyle.Flat;
+            serverMigrationSelectButton.FlatAppearance.BorderColor = border;
+            serverMigrationSelectButton.BackColor = Color.White;
+            serverMigrationSelectButton.Enabled = false;
+            serverMigrationSelectButton.Click += delegate { ShowServerMigrationDialog(); };
+            card.Controls.Add(serverMigrationSelectButton);
         }
 
         private void AddHostButton(Control root, string text, int left)
@@ -335,7 +410,7 @@ namespace TekSoftwareSuporte
             Button button = new Button();
             button.Text = text;
             button.Left = left;
-            button.Top = 491;
+            button.Top = 31;
             button.Width = text.Length > 6 ? 64 : 54;
             button.Height = 28;
             button.FlatStyle = FlatStyle.Flat;
@@ -348,64 +423,74 @@ namespace TekSoftwareSuporte
 
         private void BuildProgressPanel(Control root)
         {
+            Panel card = CreateCard(root, 586, 186, 554, 350);
+
             Label progressTitle = new Label();
             progressTitle.Text = "Progresso da execucao";
-            progressTitle.Left = 420;
-            progressTitle.Top = 158;
+            progressTitle.Left = 18;
+            progressTitle.Top = 14;
             progressTitle.Width = 360;
             progressTitle.Height = 24;
             progressTitle.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
             progressTitle.ForeColor = blue;
-            root.Controls.Add(progressTitle);
+            card.Controls.Add(progressTitle);
 
-            progressBar.Left = 420;
-            progressBar.Top = 196;
-            progressBar.Width = 480;
+            progressBar.Left = 18;
+            progressBar.Top = 52;
+            progressBar.Width = 410;
             progressBar.Height = 28;
             progressBar.Minimum = 0;
             progressBar.Maximum = 100;
-            root.Controls.Add(progressBar);
+            card.Controls.Add(progressBar);
 
             progressLabel.Text = "0% concluido";
-            progressLabel.Left = 920;
-            progressLabel.Top = 199;
+            progressLabel.Left = 446;
+            progressLabel.Top = 55;
             progressLabel.Width = 90;
             progressLabel.Height = 24;
             progressLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             progressLabel.ForeColor = blue;
-            root.Controls.Add(progressLabel);
+            card.Controls.Add(progressLabel);
 
             GearPanel gear = new GearPanel();
-            gear.Left = 420;
-            gear.Top = 240;
+            gear.Left = 18;
+            gear.Top = 96;
             gear.Width = 34;
             gear.Height = 34;
             gear.ForeColor = Color.FromArgb(24, 118, 224);
-            root.Controls.Add(gear);
+            card.Controls.Add(gear);
 
             currentStepLabel.Text = "Aguardando inicio do suporte";
-            currentStepLabel.Left = 462;
-            currentStepLabel.Top = 244;
-            currentStepLabel.Width = 510;
+            currentStepLabel.Left = 60;
+            currentStepLabel.Top = 100;
+            currentStepLabel.Width = 470;
             currentStepLabel.Height = 28;
             currentStepLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
             currentStepLabel.ForeColor = Color.FromArgb(35, 43, 55);
-            root.Controls.Add(currentStepLabel);
+            card.Controls.Add(currentStepLabel);
+
+            Panel separator = new Panel();
+            separator.Left = 18;
+            separator.Top = 144;
+            separator.Width = 518;
+            separator.Height = 1;
+            separator.BackColor = border;
+            card.Controls.Add(separator);
 
             Label logTitle = new Label();
             logTitle.Text = "Log de execucao (PowerShell)";
-            logTitle.Left = 420;
-            logTitle.Top = 294;
+            logTitle.Left = 18;
+            logTitle.Top = 154;
             logTitle.Width = 360;
             logTitle.Height = 24;
             logTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             logTitle.ForeColor = blue;
-            root.Controls.Add(logTitle);
+            card.Controls.Add(logTitle);
 
-            logBox.Left = 420;
-            logBox.Top = 322;
-            logBox.Width = 560;
-            logBox.Height = 182;
+            logBox.Left = 18;
+            logBox.Top = 182;
+            logBox.Width = 518;
+            logBox.Height = 146;
             logBox.Multiline = true;
             logBox.ReadOnly = true;
             logBox.ScrollBars = ScrollBars.Vertical;
@@ -413,22 +498,22 @@ namespace TekSoftwareSuporte
             logBox.BackColor = Color.White;
             logBox.ForeColor = Color.FromArgb(24, 30, 38);
             logBox.BorderStyle = BorderStyle.FixedSingle;
-            root.Controls.Add(logBox);
+            card.Controls.Add(logBox);
         }
 
         private void BuildFooter(Control root)
         {
             Panel line = new Panel();
             line.Left = 0;
-            line.Top = 604;
-            line.Width = 1024;
+            line.Top = 746;
+            line.Width = 1180;
             line.Height = 1;
             line.BackColor = border;
             root.Controls.Add(line);
 
             statusLabel.Text = "Pronto para executar";
             statusLabel.Left = 62;
-            statusLabel.Top = 630;
+            statusLabel.Top = 772;
             statusLabel.Width = 300;
             statusLabel.Height = 24;
             statusLabel.ForeColor = Color.FromArgb(38, 48, 64);
@@ -437,15 +522,15 @@ namespace TekSoftwareSuporte
 
             InfoCircle info = new InfoCircle();
             info.Left = 40;
-            info.Top = 628;
+            info.Top = 770;
             info.Width = 18;
             info.Height = 18;
             info.ForeColor = blue;
             root.Controls.Add(info);
 
             closeWhenDoneCheckBox.Text = "Fechar automaticamente ao finalizar";
-            closeWhenDoneCheckBox.Left = 364;
-            closeWhenDoneCheckBox.Top = 624;
+            closeWhenDoneCheckBox.Left = 420;
+            closeWhenDoneCheckBox.Top = 766;
             closeWhenDoneCheckBox.Width = 225;
             closeWhenDoneCheckBox.Height = 24;
             closeWhenDoneCheckBox.Checked = false;
@@ -454,8 +539,8 @@ namespace TekSoftwareSuporte
             root.Controls.Add(closeWhenDoneCheckBox);
 
             executeButton.Text = "Executar";
-            executeButton.Left = 604;
-            executeButton.Top = 612;
+            executeButton.Left = 720;
+            executeButton.Top = 754;
             executeButton.Width = 150;
             executeButton.Height = 40;
             executeButton.FlatStyle = FlatStyle.Flat;
@@ -467,8 +552,8 @@ namespace TekSoftwareSuporte
             root.Controls.Add(executeButton);
 
             cancelButton.Text = "Cancelar";
-            cancelButton.Left = 772;
-            cancelButton.Top = 612;
+            cancelButton.Left = 888;
+            cancelButton.Top = 754;
             cancelButton.Width = 124;
             cancelButton.Height = 40;
             cancelButton.FlatStyle = FlatStyle.Flat;
@@ -479,8 +564,8 @@ namespace TekSoftwareSuporte
             root.Controls.Add(cancelButton);
 
             closeButton.Text = "Fechar";
-            closeButton.Left = 912;
-            closeButton.Top = 612;
+            closeButton.Left = 1028;
+            closeButton.Top = 754;
             closeButton.Width = 88;
             closeButton.Height = 40;
             closeButton.FlatStyle = FlatStyle.Flat;
@@ -557,6 +642,46 @@ namespace TekSoftwareSuporte
 
             printerSelectionLabel.Text = text;
             toolTip.SetToolTip(printerSelectionLabel, text);
+        }
+
+        private bool ShowServerMigrationDialog()
+        {
+            using (ServerMigrationDialog dialog = new ServerMigrationDialog(selectedServerMigration))
+            {
+                DialogResult result = dialog.ShowDialog(this);
+
+                if (result == DialogResult.OK && dialog.SelectedPlan != null)
+                {
+                    selectedServerMigration = dialog.SelectedPlan;
+
+                    if (serverMigrationActionOption != null)
+                    {
+                        serverMigrationActionOption.CheckBox.Checked = true;
+                    }
+
+                    UpdateServerMigrationSelectionState();
+                    return true;
+                }
+            }
+
+            UpdateServerMigrationSelectionState();
+            return false;
+        }
+
+        private void UpdateServerMigrationSelectionState()
+        {
+            bool enabled = serverMigrationActionOption != null && serverMigrationActionOption.CheckBox.Checked;
+            serverMigrationSelectButton.Enabled = enabled;
+
+            string text = "Nenhuma troca configurada";
+
+            if (selectedServerMigration != null)
+            {
+                text = selectedServerMigration.IsNovoServidor ? "Novo servidor" : "Servidor antigo";
+            }
+
+            serverMigrationSelectionLabel.Text = text;
+            toolTip.SetToolTip(serverMigrationSelectionLabel, selectedServerMigration == null ? text : selectedServerMigration.GetSummary());
         }
 
         private void StartSupport()
@@ -705,6 +830,48 @@ namespace TekSoftwareSuporte
                     "Driver " + selectedPrinter.BrandName + " " + selectedPrinter.ModelName));
             }
 
+            if (plan.ContainsAction("trocaservidor"))
+            {
+                if (selectedServerMigration == null)
+                {
+                    if (!ShowServerMigrationDialog())
+                    {
+                        statusLabel.Text = "Configure a troca de servidor";
+                        currentStepLabel.Text = "Troca de servidor sem configuracao";
+                        return null;
+                    }
+                }
+
+                plan.ServerMigration = selectedServerMigration;
+
+                if (selectedServerMigration.IsNovoServidor)
+                {
+                    if (selectedServerMigration.InstalarFull)
+                    {
+                        plan.Downloads.Add(new DownloadItem(RawUrl + "/instalar.ps1", "instalar.ps1", "instalar.ps1"));
+                        plan.Downloads.Add(new DownloadItem(BaseUrl + "/CRRuntime_32bit_13_0_39.msi", "CRRuntime_32bit_13_0_39.msi", "CRRuntime_32bit_13_0_39.msi"));
+                        plan.Downloads.Add(new DownloadItem(BaseUrl + "/crdb_adoplus.zip", "crdb_adoplus.zip", "crdb_adoplus.zip"));
+                        plan.Downloads.Add(new DownloadItem(BaseUrl + "/dotnet48.exe", "dotnet48.exe", "dotnet48.exe"));
+                        plan.Downloads.Add(new DownloadItem(BaseUrl + "/VC_redist.x86.exe", "VC_redist.x86.exe", "VC_redist.x86.exe"));
+                        plan.Downloads.Add(new DownloadItem(BaseUrl + "/VC_redist.x64.exe", "VC_redist.x64.exe", "VC_redist.x64.exe"));
+
+                        if (String.Equals(selectedServerMigration.TipoVersao, "i", StringComparison.OrdinalIgnoreCase))
+                        {
+                            plan.Downloads.Add(new DownloadItem(UrlVersaoI, "TekFarma50i.exe", "TekFarma50i.exe"));
+                        }
+                        else
+                        {
+                            plan.Downloads.Add(new DownloadItem(UrlVersaoNormal, "TekFarma50.exe", "TekFarma50.exe"));
+                        }
+                    }
+
+                    if (selectedServerMigration.InstalarFirebird)
+                    {
+                        plan.Downloads.Add(new DownloadItem(BaseUrl + "/Firebird-2.5.9.exe", "Firebird-2.5.9.exe", "Firebird-2.5.9.exe"));
+                    }
+                }
+            }
+
             return plan;
         }
 
@@ -753,6 +920,20 @@ namespace TekSoftwareSuporte
                 args += " -ImpressoraInstalador " + QuoteArgument(plan.PrinterDriver.InstallerPath);
                 args += " -RemoverImpressoras " + QuoteArgument(JoinArgumentList(plan.PrintersToRemove));
                 args += " -RemoverDriversImpressora " + QuoteArgument(JoinArgumentList(plan.PrinterDriversToRemove));
+            }
+
+            if (plan.ServerMigration != null)
+            {
+                args += " -TrocaPerfil " + QuoteArgument(plan.ServerMigration.IsNovoServidor ? "novo" : "antigo");
+                args += " -TrocaHostAntigo " + QuoteArgument(plan.ServerMigration.HostAntigo);
+                args += " -TrocaTipoVersao " + QuoteArgument(plan.ServerMigration.TipoVersao);
+                args += " -TrocaCopiarPrincipal " + QuoteArgument(plan.ServerMigration.CopiarPrincipal ? "true" : "false");
+                args += " -TrocaCopiarFinal " + QuoteArgument(plan.ServerMigration.CopiarFinal ? "true" : "false");
+                args += " -TrocaInstalarFull " + QuoteArgument(plan.ServerMigration.InstalarFull ? "true" : "false");
+                args += " -TrocaInstalarFirebird " + QuoteArgument(plan.ServerMigration.InstalarFirebird ? "true" : "false");
+                args += " -TrocaConfigurarRede " + QuoteArgument(plan.ServerMigration.ConfigurarRede ? "true" : "false");
+                args += " -TrocaRenomearReiniciar " + QuoteArgument(plan.ServerMigration.RenomearReiniciar ? "true" : "false");
+                args += " -TrocaExcluirPastas " + QuoteArgument(plan.ServerMigration.ExcluirPastas);
             }
 
             bg.ReportProgress(CalcPercent(completedUnits, totalUnits), "Executando suporte TekSoftware...");
@@ -961,6 +1142,7 @@ namespace TekSoftwareSuporte
 
             hostTextBox.Enabled = enabled;
             printerSelectButton.Enabled = enabled && printerActionOption != null && printerActionOption.CheckBox.Checked;
+            serverMigrationSelectButton.Enabled = enabled && serverMigrationActionOption != null && serverMigrationActionOption.CheckBox.Checked;
             closeWhenDoneCheckBox.Enabled = enabled;
         }
 
@@ -1007,6 +1189,7 @@ namespace TekSoftwareSuporte
     {
         public string HostServidor;
         public PrinterDriver PrinterDriver;
+        public ServerMigrationPlan ServerMigration;
         public readonly List<string> PrintersToRemove = new List<string>();
         public readonly List<string> PrinterDriversToRemove = new List<string>();
         public readonly List<ActionOption> Actions = new List<ActionOption>();
@@ -1049,6 +1232,294 @@ namespace TekSoftwareSuporte
             Url = url;
             FileName = fileName;
             Name = name;
+        }
+    }
+
+    internal sealed class ServerMigrationPlan
+    {
+        public bool IsNovoServidor;
+        public string HostAntigo = "SERVIDOR";
+        public string TipoVersao = "normal";
+        public bool CopiarPrincipal = true;
+        public bool CopiarFinal;
+        public bool InstalarFull = true;
+        public bool InstalarFirebird = true;
+        public bool ConfigurarRede = true;
+        public bool RenomearReiniciar;
+        public string ExcluirPastas = "XML;Xml;xml;NFe;NFCe;SAT;CTe;MDFe";
+
+        public string GetSummary()
+        {
+            if (IsNovoServidor)
+            {
+                return "Novo servidor | origem " + HostAntigo + " | versao " + TipoVersao;
+            }
+
+            return "Servidor antigo | remover Firebird" + (RenomearReiniciar ? " | renomear para OLD" : "");
+        }
+    }
+
+    internal sealed class ServerMigrationDialog : Form
+    {
+        private readonly Color blue = Color.FromArgb(0, 92, 190);
+        private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
+        private readonly Color border = Color.FromArgb(205, 214, 224);
+        private readonly RadioButton novoRadio = new RadioButton();
+        private readonly RadioButton antigoRadio = new RadioButton();
+        private readonly TextBox hostAntigoTextBox = new TextBox();
+        private readonly RadioButton versaoNormalRadio = new RadioButton();
+        private readonly RadioButton versaoIRadio = new RadioButton();
+        private readonly CheckBox copiarPrincipalCheckBox = new CheckBox();
+        private readonly CheckBox copiarFinalCheckBox = new CheckBox();
+        private readonly CheckBox instalarFullCheckBox = new CheckBox();
+        private readonly CheckBox instalarFirebirdCheckBox = new CheckBox();
+        private readonly CheckBox configurarRedeCheckBox = new CheckBox();
+        private readonly CheckBox renomearReiniciarCheckBox = new CheckBox();
+        private readonly TextBox excluirPastasTextBox = new TextBox();
+        private readonly Button okButton = new Button();
+        private readonly Button cancelButton = new Button();
+
+        public ServerMigrationPlan SelectedPlan { get; private set; }
+
+        public ServerMigrationDialog(ServerMigrationPlan currentPlan)
+        {
+            Text = "Troca de servidor";
+            Width = 720;
+            Height = 570;
+            MinimumSize = new Size(720, 570);
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = Color.White;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+
+            BuildLayout();
+            LoadPlan(currentPlan);
+            UpdateModeState();
+        }
+
+        private void BuildLayout()
+        {
+            Label title = new Label();
+            title.Text = "Troca de servidor";
+            title.Left = 24;
+            title.Top = 18;
+            title.Width = 420;
+            title.Height = 34;
+            title.Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point);
+            title.ForeColor = darkBlue;
+            Controls.Add(title);
+
+            novoRadio.Text = "Configurar novo servidor";
+            novoRadio.Left = 28;
+            novoRadio.Top = 70;
+            novoRadio.Width = 230;
+            novoRadio.CheckedChanged += delegate { UpdateModeState(); };
+            Controls.Add(novoRadio);
+
+            antigoRadio.Text = "Configurar servidor antigo";
+            antigoRadio.Left = 280;
+            antigoRadio.Top = 70;
+            antigoRadio.Width = 230;
+            antigoRadio.CheckedChanged += delegate { UpdateModeState(); };
+            Controls.Add(antigoRadio);
+
+            GroupBox novoBox = new GroupBox();
+            novoBox.Text = "Novo servidor";
+            novoBox.Left = 24;
+            novoBox.Top = 108;
+            novoBox.Width = 660;
+            novoBox.Height = 306;
+            novoBox.ForeColor = blue;
+            Controls.Add(novoBox);
+
+            Label hostLabel = new Label();
+            hostLabel.Text = "Servidor atual ou caminho origem";
+            hostLabel.Left = 16;
+            hostLabel.Top = 30;
+            hostLabel.Width = 260;
+            hostLabel.Height = 22;
+            hostLabel.ForeColor = Color.FromArgb(38, 48, 64);
+            novoBox.Controls.Add(hostLabel);
+
+            hostAntigoTextBox.Left = 16;
+            hostAntigoTextBox.Top = 54;
+            hostAntigoTextBox.Width = 300;
+            hostAntigoTextBox.Height = 26;
+            hostAntigoTextBox.Text = "SERVIDOR";
+            novoBox.Controls.Add(hostAntigoTextBox);
+
+            Label versionLabel = new Label();
+            versionLabel.Text = "Versao TekFarma";
+            versionLabel.Left = 340;
+            versionLabel.Top = 30;
+            versionLabel.Width = 180;
+            versionLabel.Height = 22;
+            versionLabel.ForeColor = Color.FromArgb(38, 48, 64);
+            novoBox.Controls.Add(versionLabel);
+
+            versaoNormalRadio.Text = "Normal";
+            versaoNormalRadio.Left = 340;
+            versaoNormalRadio.Top = 56;
+            versaoNormalRadio.Width = 90;
+            novoBox.Controls.Add(versaoNormalRadio);
+
+            versaoIRadio.Text = "Versao i";
+            versaoIRadio.Left = 440;
+            versaoIRadio.Top = 56;
+            versaoIRadio.Width = 100;
+            novoBox.Controls.Add(versaoIRadio);
+
+            copiarPrincipalCheckBox.Text = "Pre-copiar TekSoftware sem pastas XML/pesadas";
+            copiarPrincipalCheckBox.Left = 16;
+            copiarPrincipalCheckBox.Top = 104;
+            copiarPrincipalCheckBox.Width = 390;
+            novoBox.Controls.Add(copiarPrincipalCheckBox);
+
+            copiarFinalCheckBox.Text = "Rodar copia final/pastas XML agora";
+            copiarFinalCheckBox.Left = 16;
+            copiarFinalCheckBox.Top = 134;
+            copiarFinalCheckBox.Width = 300;
+            novoBox.Controls.Add(copiarFinalCheckBox);
+
+            instalarFullCheckBox.Text = "Executar FULL: versao + Crystal + .NET + VS";
+            instalarFullCheckBox.Left = 16;
+            instalarFullCheckBox.Top = 164;
+            instalarFullCheckBox.Width = 360;
+            novoBox.Controls.Add(instalarFullCheckBox);
+
+            instalarFirebirdCheckBox.Text = "Instalar/reinstalar Firebird no novo servidor";
+            instalarFirebirdCheckBox.Left = 16;
+            instalarFirebirdCheckBox.Top = 194;
+            instalarFirebirdCheckBox.Width = 360;
+            novoBox.Controls.Add(instalarFirebirdCheckBox);
+
+            configurarRedeCheckBox.Text = "Configurar rede e compartilhar C:\\TekSoftware";
+            configurarRedeCheckBox.Left = 16;
+            configurarRedeCheckBox.Top = 224;
+            configurarRedeCheckBox.Width = 360;
+            novoBox.Controls.Add(configurarRedeCheckBox);
+
+            Label excluirLabel = new Label();
+            excluirLabel.Text = "Pastas para deixar por ultimo";
+            excluirLabel.Left = 16;
+            excluirLabel.Top = 254;
+            excluirLabel.Width = 220;
+            excluirLabel.Height = 22;
+            excluirLabel.ForeColor = Color.FromArgb(38, 48, 64);
+            novoBox.Controls.Add(excluirLabel);
+
+            excluirPastasTextBox.Left = 234;
+            excluirPastasTextBox.Top = 252;
+            excluirPastasTextBox.Width = 398;
+            excluirPastasTextBox.Height = 26;
+            novoBox.Controls.Add(excluirPastasTextBox);
+
+            GroupBox antigoBox = new GroupBox();
+            antigoBox.Text = "Servidor antigo";
+            antigoBox.Left = 24;
+            antigoBox.Top = 424;
+            antigoBox.Width = 660;
+            antigoBox.Height = 72;
+            antigoBox.ForeColor = blue;
+            Controls.Add(antigoBox);
+
+            renomearReiniciarCheckBox.Text = "Renomear este computador e reiniciar ao final";
+            renomearReiniciarCheckBox.Left = 16;
+            renomearReiniciarCheckBox.Top = 30;
+            renomearReiniciarCheckBox.Width = 360;
+            antigoBox.Controls.Add(renomearReiniciarCheckBox);
+
+            okButton.Text = "Salvar";
+            okButton.Left = 482;
+            okButton.Top = 510;
+            okButton.Width = 96;
+            okButton.Height = 36;
+            okButton.FlatStyle = FlatStyle.Flat;
+            okButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
+            okButton.BackColor = Color.FromArgb(0, 104, 210);
+            okButton.ForeColor = Color.White;
+            okButton.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            okButton.Click += delegate { ConfirmSelection(); };
+            Controls.Add(okButton);
+
+            cancelButton.Text = "Cancelar";
+            cancelButton.Left = 588;
+            cancelButton.Top = 510;
+            cancelButton.Width = 96;
+            cancelButton.Height = 36;
+            cancelButton.FlatStyle = FlatStyle.Flat;
+            cancelButton.FlatAppearance.BorderColor = border;
+            cancelButton.BackColor = Color.White;
+            cancelButton.DialogResult = DialogResult.Cancel;
+            Controls.Add(cancelButton);
+
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+        }
+
+        private void LoadPlan(ServerMigrationPlan plan)
+        {
+            if (plan == null)
+            {
+                novoRadio.Checked = true;
+                versaoNormalRadio.Checked = true;
+                copiarPrincipalCheckBox.Checked = true;
+                copiarFinalCheckBox.Checked = false;
+                instalarFullCheckBox.Checked = true;
+                instalarFirebirdCheckBox.Checked = true;
+                configurarRedeCheckBox.Checked = true;
+                renomearReiniciarCheckBox.Checked = false;
+                excluirPastasTextBox.Text = "XML;Xml;xml;NFe;NFCe;SAT;CTe;MDFe";
+                return;
+            }
+
+            novoRadio.Checked = plan.IsNovoServidor;
+            antigoRadio.Checked = !plan.IsNovoServidor;
+            hostAntigoTextBox.Text = plan.HostAntigo;
+            versaoNormalRadio.Checked = !String.Equals(plan.TipoVersao, "i", StringComparison.OrdinalIgnoreCase);
+            versaoIRadio.Checked = String.Equals(plan.TipoVersao, "i", StringComparison.OrdinalIgnoreCase);
+            copiarPrincipalCheckBox.Checked = plan.CopiarPrincipal;
+            copiarFinalCheckBox.Checked = plan.CopiarFinal;
+            instalarFullCheckBox.Checked = plan.InstalarFull;
+            instalarFirebirdCheckBox.Checked = plan.InstalarFirebird;
+            configurarRedeCheckBox.Checked = plan.ConfigurarRede;
+            renomearReiniciarCheckBox.Checked = plan.RenomearReiniciar;
+            excluirPastasTextBox.Text = plan.ExcluirPastas;
+        }
+
+        private void UpdateModeState()
+        {
+            bool novo = novoRadio.Checked;
+            hostAntigoTextBox.Enabled = novo;
+            versaoNormalRadio.Enabled = novo;
+            versaoIRadio.Enabled = novo;
+            copiarPrincipalCheckBox.Enabled = novo;
+            copiarFinalCheckBox.Enabled = novo;
+            instalarFullCheckBox.Enabled = novo;
+            instalarFirebirdCheckBox.Enabled = novo;
+            configurarRedeCheckBox.Enabled = novo;
+            excluirPastasTextBox.Enabled = novo;
+        }
+
+        private void ConfirmSelection()
+        {
+            ServerMigrationPlan plan = new ServerMigrationPlan();
+            plan.IsNovoServidor = novoRadio.Checked;
+            plan.HostAntigo = String.IsNullOrWhiteSpace(hostAntigoTextBox.Text) ? "SERVIDOR" : hostAntigoTextBox.Text.Trim();
+            plan.TipoVersao = versaoIRadio.Checked ? "i" : "normal";
+            plan.CopiarPrincipal = copiarPrincipalCheckBox.Checked;
+            plan.CopiarFinal = copiarFinalCheckBox.Checked;
+            plan.InstalarFull = instalarFullCheckBox.Checked;
+            plan.InstalarFirebird = instalarFirebirdCheckBox.Checked;
+            plan.ConfigurarRede = configurarRedeCheckBox.Checked;
+            plan.RenomearReiniciar = renomearReiniciarCheckBox.Checked;
+            plan.ExcluirPastas = excluirPastasTextBox.Text.Trim();
+
+            SelectedPlan = plan;
+            DialogResult = DialogResult.OK;
+            Close();
         }
     }
 
