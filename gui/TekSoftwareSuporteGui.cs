@@ -63,6 +63,8 @@ namespace TekSoftwareSuporte
         private int totalUnits;
         private PrinterDriver selectedPrinter;
         private ActionOption printerActionOption;
+        private readonly List<string> selectedPrintersToRemove = new List<string>();
+        private readonly List<string> selectedPrinterDriversToRemove = new List<string>();
 
         public SupportForm()
         {
@@ -212,7 +214,10 @@ namespace TekSoftwareSuporte
                 UpdatePrinterSelectionState();
                 if (printerActionOption.CheckBox.Checked && selectedPrinter == null)
                 {
-                    ShowPrinterSelectionDialog();
+                    if (!ShowPrinterSelectionDialog())
+                    {
+                        printerActionOption.CheckBox.Checked = false;
+                    }
                 }
             };
 
@@ -495,6 +500,7 @@ namespace TekSoftwareSuporte
                 if (result == DialogResult.OK && dialog.SelectedDriver != null)
                 {
                     selectedPrinter = dialog.SelectedDriver;
+                    AskPrinterRemoval();
 
                     if (printerActionOption != null)
                     {
@@ -508,6 +514,33 @@ namespace TekSoftwareSuporte
 
             UpdatePrinterSelectionState();
             return false;
+        }
+
+        private void AskPrinterRemoval()
+        {
+            selectedPrintersToRemove.Clear();
+            selectedPrinterDriversToRemove.Clear();
+
+            DialogResult answer = MessageBox.Show(
+                this,
+                "Gostaria de remover alguma impressora ou driver atual antes de instalar?",
+                "Remover impressora atual",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (answer != DialogResult.Yes)
+            {
+                return;
+            }
+
+            using (PrinterRemovalDialog dialog = new PrinterRemovalDialog())
+            {
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    selectedPrintersToRemove.AddRange(dialog.SelectedPrinters);
+                    selectedPrinterDriversToRemove.AddRange(dialog.SelectedDrivers);
+                }
+            }
         }
 
         private void UpdatePrinterSelectionState()
@@ -664,6 +697,8 @@ namespace TekSoftwareSuporte
                 }
 
                 plan.PrinterDriver = selectedPrinter;
+                plan.PrintersToRemove.AddRange(selectedPrintersToRemove);
+                plan.PrinterDriversToRemove.AddRange(selectedPrinterDriversToRemove);
                 plan.Downloads.Add(new DownloadItem(
                     DriversBaseUrl + "/" + selectedPrinter.Arquivo,
                     Path.GetFileName(selectedPrinter.Arquivo),
@@ -716,6 +751,8 @@ namespace TekSoftwareSuporte
                 args += " -ImpressoraModelo " + QuoteArgument(plan.PrinterDriver.Modelo);
                 args += " -ImpressoraArquivo " + QuoteArgument(Path.GetFileName(plan.PrinterDriver.Arquivo));
                 args += " -ImpressoraInstalador " + QuoteArgument(plan.PrinterDriver.Instalador);
+                args += " -RemoverImpressoras " + QuoteArgument(JoinArgumentList(plan.PrintersToRemove));
+                args += " -RemoverDriversImpressora " + QuoteArgument(JoinArgumentList(plan.PrinterDriversToRemove));
             }
 
             bg.ReportProgress(CalcPercent(completedUnits, totalUnits), "Executando suporte TekSoftware...");
@@ -878,6 +915,21 @@ namespace TekSoftwareSuporte
             return "\"" + value.Replace("\"", "\\\"") + "\"";
         }
 
+        private string JoinArgumentList(List<string> values)
+        {
+            List<string> parts = new List<string>();
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (!String.IsNullOrWhiteSpace(values[i]))
+                {
+                    parts.Add(values[i].Trim());
+                }
+            }
+
+            return String.Join("|||", parts.ToArray());
+        }
+
         private void SetProgress(int value)
         {
             if (value < progressBar.Minimum) value = progressBar.Minimum;
@@ -955,6 +1007,8 @@ namespace TekSoftwareSuporte
     {
         public string HostServidor;
         public PrinterDriver PrinterDriver;
+        public readonly List<string> PrintersToRemove = new List<string>();
+        public readonly List<string> PrinterDriversToRemove = new List<string>();
         public readonly List<ActionOption> Actions = new List<ActionOption>();
         public readonly List<DownloadItem> Downloads = new List<DownloadItem>();
 
@@ -1382,6 +1436,329 @@ namespace TekSoftwareSuporte
             }
 
             return false;
+        }
+    }
+
+    internal sealed class PrinterRemovalDialog : Form
+    {
+        private readonly Color blue = Color.FromArgb(0, 92, 190);
+        private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
+        private readonly Color border = Color.FromArgb(205, 214, 224);
+        private readonly CheckedListBox printerList = new CheckedListBox();
+        private readonly CheckedListBox driverList = new CheckedListBox();
+        private readonly Label statusLabel = new Label();
+        private readonly Button refreshButton = new Button();
+        private readonly Button okButton = new Button();
+        private readonly Button cancelButton = new Button();
+
+        public List<string> SelectedPrinters { get; private set; }
+        public List<string> SelectedDrivers { get; private set; }
+
+        public PrinterRemovalDialog()
+        {
+            SelectedPrinters = new List<string>();
+            SelectedDrivers = new List<string>();
+
+            Text = "Remover impressora ou driver atual";
+            Width = 820;
+            Height = 540;
+            MinimumSize = new Size(820, 540);
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = Color.White;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+
+            BuildLayout();
+            Load += delegate { LoadInstalledItems(); };
+        }
+
+        private void BuildLayout()
+        {
+            Label title = new Label();
+            title.Text = "Remover impressora atual";
+            title.Left = 24;
+            title.Top = 18;
+            title.Width = 460;
+            title.Height = 34;
+            title.Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point);
+            title.ForeColor = darkBlue;
+            Controls.Add(title);
+
+            statusLabel.Text = "Selecione somente o que deseja remover antes da instalacao.";
+            statusLabel.Left = 26;
+            statusLabel.Top = 58;
+            statusLabel.Width = 650;
+            statusLabel.Height = 24;
+            statusLabel.ForeColor = Color.FromArgb(90, 98, 112);
+            Controls.Add(statusLabel);
+
+            refreshButton.Text = "Atualizar";
+            refreshButton.Left = 686;
+            refreshButton.Top = 24;
+            refreshButton.Width = 96;
+            refreshButton.Height = 32;
+            refreshButton.FlatStyle = FlatStyle.Flat;
+            refreshButton.FlatAppearance.BorderColor = border;
+            refreshButton.BackColor = Color.White;
+            refreshButton.Click += delegate { LoadInstalledItems(); };
+            Controls.Add(refreshButton);
+
+            Label printersTitle = new Label();
+            printersTitle.Text = "Impressoras instaladas";
+            printersTitle.Left = 24;
+            printersTitle.Top = 96;
+            printersTitle.Width = 340;
+            printersTitle.Height = 24;
+            printersTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            printersTitle.ForeColor = blue;
+            Controls.Add(printersTitle);
+
+            printerList.Left = 24;
+            printerList.Top = 124;
+            printerList.Width = 370;
+            printerList.Height = 300;
+            printerList.CheckOnClick = true;
+            printerList.BorderStyle = BorderStyle.FixedSingle;
+            printerList.DisplayMember = "DisplayText";
+            Controls.Add(printerList);
+
+            Label driversTitle = new Label();
+            driversTitle.Text = "Drivers instalados";
+            driversTitle.Left = 416;
+            driversTitle.Top = 96;
+            driversTitle.Width = 340;
+            driversTitle.Height = 24;
+            driversTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            driversTitle.ForeColor = blue;
+            Controls.Add(driversTitle);
+
+            driverList.Left = 416;
+            driverList.Top = 124;
+            driverList.Width = 366;
+            driverList.Height = 300;
+            driverList.CheckOnClick = true;
+            driverList.BorderStyle = BorderStyle.FixedSingle;
+            Controls.Add(driverList);
+
+            Label warning = new Label();
+            warning.Text = "Dica: remova primeiro a impressora. Marque o driver apenas quando quiser limpar residuos antes de instalar novamente.";
+            warning.Left = 24;
+            warning.Top = 436;
+            warning.Width = 758;
+            warning.Height = 24;
+            warning.ForeColor = Color.FromArgb(110, 80, 32);
+            Controls.Add(warning);
+
+            okButton.Text = "Continuar";
+            okButton.Left = 574;
+            okButton.Top = 466;
+            okButton.Width = 100;
+            okButton.Height = 36;
+            okButton.FlatStyle = FlatStyle.Flat;
+            okButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
+            okButton.BackColor = Color.FromArgb(0, 104, 210);
+            okButton.ForeColor = Color.White;
+            okButton.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            okButton.Click += delegate { ConfirmSelection(); };
+            Controls.Add(okButton);
+
+            cancelButton.Text = "Cancelar";
+            cancelButton.Left = 686;
+            cancelButton.Top = 466;
+            cancelButton.Width = 96;
+            cancelButton.Height = 36;
+            cancelButton.FlatStyle = FlatStyle.Flat;
+            cancelButton.FlatAppearance.BorderColor = border;
+            cancelButton.BackColor = Color.White;
+            cancelButton.DialogResult = DialogResult.Cancel;
+            Controls.Add(cancelButton);
+
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+        }
+
+        private void LoadInstalledItems()
+        {
+            Cursor previousCursor = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            refreshButton.Enabled = false;
+            statusLabel.Text = "Carregando impressoras e drivers instalados...";
+            printerList.Items.Clear();
+            driverList.Items.Clear();
+
+            try
+            {
+                List<InstalledPrinterInfo> printers = QueryInstalledPrinters();
+                for (int i = 0; i < printers.Count; i++)
+                {
+                    printerList.Items.Add(printers[i], false);
+                }
+
+                List<string> drivers = QueryInstalledDrivers();
+                for (int i = 0; i < drivers.Count; i++)
+                {
+                    driverList.Items.Add(drivers[i], false);
+                }
+
+                statusLabel.Text = printers.Count + " impressoras e " + drivers.Count + " drivers encontrados.";
+            }
+            catch (Exception ex)
+            {
+                statusLabel.Text = "Erro ao carregar impressoras/drivers.";
+                MessageBox.Show(this, ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                refreshButton.Enabled = true;
+                Cursor.Current = previousCursor;
+            }
+        }
+
+        private List<InstalledPrinterInfo> QueryInstalledPrinters()
+        {
+            List<InstalledPrinterInfo> items = new List<InstalledPrinterInfo>();
+            string[] lines = RunPowerShellLines("Get-Printer | Sort-Object Name | ForEach-Object { $_.Name + [char]9 + $_.DriverName }");
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                if (String.IsNullOrWhiteSpace(line)) continue;
+
+                string[] parts = line.Split(new char[] { '\t' }, 2);
+                string name = parts.Length > 0 ? parts[0].Trim() : "";
+                string driver = parts.Length > 1 ? parts[1].Trim() : "";
+
+                if (!String.IsNullOrWhiteSpace(name))
+                {
+                    items.Add(new InstalledPrinterInfo(name, driver));
+                }
+            }
+
+            return items;
+        }
+
+        private List<string> QueryInstalledDrivers()
+        {
+            List<string> items = new List<string>();
+            string[] lines = RunPowerShellLines("Get-PrinterDriver | Sort-Object Name | ForEach-Object { $_.Name }");
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string name = lines[i].Trim();
+
+                if (!String.IsNullOrWhiteSpace(name) && !ContainsText(items, name))
+                {
+                    items.Add(name);
+                }
+            }
+
+            return items;
+        }
+
+        private string[] RunPowerShellLines(string command)
+        {
+            ProcessStartInfo psi = new ProcessStartInfo();
+            psi.FileName = "powershell.exe";
+            psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command " + QuoteForPowerShell(command);
+            psi.UseShellExecute = false;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            psi.CreateNoWindow = true;
+
+            using (Process process = new Process())
+            {
+                process.StartInfo = psi;
+                process.Start();
+                string stdout = process.StandardOutput.ReadToEnd();
+                string stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit(15000);
+
+                if (!process.HasExited)
+                {
+                    try { process.Kill(); } catch { }
+                    throw new InvalidOperationException("Tempo limite ao consultar impressoras/drivers.");
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException(String.IsNullOrWhiteSpace(stderr) ? "Falha ao consultar impressoras/drivers." : stderr.Trim());
+                }
+
+                return stdout.Split(new string[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries);
+            }
+        }
+
+        private string QuoteForPowerShell(string value)
+        {
+            if (value == null) value = "";
+            return "\"" + value.Replace("\"", "\\\"") + "\"";
+        }
+
+        private void ConfirmSelection()
+        {
+            SelectedPrinters.Clear();
+            SelectedDrivers.Clear();
+
+            for (int i = 0; i < printerList.CheckedItems.Count; i++)
+            {
+                InstalledPrinterInfo printer = printerList.CheckedItems[i] as InstalledPrinterInfo;
+                if (printer != null && !String.IsNullOrWhiteSpace(printer.Name))
+                {
+                    SelectedPrinters.Add(printer.Name);
+                }
+            }
+
+            for (int i = 0; i < driverList.CheckedItems.Count; i++)
+            {
+                string driver = Convert.ToString(driverList.CheckedItems[i]);
+                if (!String.IsNullOrWhiteSpace(driver))
+                {
+                    SelectedDrivers.Add(driver);
+                }
+            }
+
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+
+        private bool ContainsText(List<string> values, string text)
+        {
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (String.Equals(values[i], text, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    internal sealed class InstalledPrinterInfo
+    {
+        public readonly string Name;
+        public readonly string DriverName;
+
+        public InstalledPrinterInfo(string name, string driverName)
+        {
+            Name = name;
+            DriverName = driverName;
+        }
+
+        public string DisplayText
+        {
+            get
+            {
+                if (String.IsNullOrWhiteSpace(DriverName))
+                {
+                    return Name;
+                }
+
+                return Name + "  |  " + DriverName;
+            }
         }
     }
 
