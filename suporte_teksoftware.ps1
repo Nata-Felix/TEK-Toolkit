@@ -230,6 +230,16 @@ function CriarCredencialConvidadoParaHost {
     }
 }
 
+function HabilitarMapeamentoElevadoNoExplorer {
+    try {
+        Set-Dword -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLinkedConnections" -Value 1
+        LogMsg "EnableLinkedConnections configurado como 1. Mapeamentos elevados ficam disponiveis ao usuario apos logoff/reinicio."
+    }
+    catch {
+        LogMsg "AVISO: Falha ao configurar EnableLinkedConnections: $($_.Exception.Message)"
+    }
+}
+
 function BaixarCadeiaCertificadoSeNecessario {
     if (Test-Path $CertificadoZip) {
         return
@@ -1027,15 +1037,45 @@ function EncontrarTekAplicacaoEmDrive {
     return ""
 }
 
-function CriarAtalhoTekFarmaMapeado {
-    param([string]$Drive)
+function EncontrarTekAplicacaoEmRede {
+    param([string]$CaminhoRede)
 
-    $Alvo = EncontrarTekAplicacaoEmDrive -Drive $Drive
+    $Candidatos = @(
+        (Join-Path $CaminhoRede "TekFarma\TekAplicacao.exe"),
+        (Join-Path $CaminhoRede "TekSoftware\TekFarma\TekAplicacao.exe"),
+        (Join-Path $CaminhoRede "TekAplicacao.exe")
+    )
+
+    foreach ($Candidato in $Candidatos) {
+        if (Test-Path $Candidato) {
+            return $Candidato
+        }
+    }
+
+    return ""
+}
+
+function CriarAtalhoTekFarmaMapeado {
+    param(
+        [string]$Drive,
+        [string]$CaminhoRede = ""
+    )
+
+    $Alvo = ""
+
+    if (![string]::IsNullOrWhiteSpace($CaminhoRede)) {
+        $Alvo = EncontrarTekAplicacaoEmRede -CaminhoRede $CaminhoRede
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Alvo)) {
+        $Alvo = EncontrarTekAplicacaoEmDrive -Drive $Drive
+    }
+
     $Desktop = [Environment]::GetFolderPath("Desktop")
     $Atalho = Join-Path $Desktop "TekFarma.lnk"
 
     if ([string]::IsNullOrWhiteSpace($Alvo)) {
-        LogMsg "AVISO: Executavel TekFarma nao encontrado no mapeamento $Drive"
+        LogMsg "AVISO: Executavel TekFarma nao encontrado no mapeamento $Drive nem em $CaminhoRede"
         return
     }
 
@@ -1128,6 +1168,7 @@ function ObterHostDeCaminhoRede {
 function MapearTekSoftware {
     param([string]$HostInformado)
 
+    HabilitarMapeamentoElevadoNoExplorer
     RemoverMapeamentosTekSoftware
 
     foreach ($CaminhoRede in @(ObterCandidatosRedeTekSoftware -HostInformado $HostInformado)) {
@@ -1139,7 +1180,7 @@ function MapearTekSoftware {
         $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede
 
         if (![string]::IsNullOrWhiteSpace($LetraLivre)) {
-            CriarAtalhoTekFarmaMapeado -Drive $LetraLivre
+            CriarAtalhoTekFarmaMapeado -Drive $LetraLivre -CaminhoRede $CaminhoRede
             return
         }
 
