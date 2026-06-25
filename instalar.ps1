@@ -603,6 +603,9 @@ if ($Modo -eq "1" -or $Modo -eq "3" -or $Modo -eq "4") {
 
 if ($Modo -eq "3") {
     InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
+}
+
+if ($Modo -eq "2" -or $Modo -eq "3") {
     InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86"
     InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64"
 }

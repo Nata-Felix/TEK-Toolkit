@@ -611,6 +611,12 @@ namespace TekFarmaInstaller
                 AddRelease(plan, "VC_redist.x64.exe");
             }
 
+            if (mode == InstallMode.Crystal)
+            {
+                AddRelease(plan, "VC_redist.x86.exe");
+                AddRelease(plan, "VC_redist.x64.exe");
+            }
+
             if (mode == InstallMode.TekFarma && perfilTek == "servidor")
             {
                 AddRelease(plan, "Firebird-2.5.9.exe");

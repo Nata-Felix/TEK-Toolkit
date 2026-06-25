@@ -187,6 +187,11 @@ $ArquivosRelease += "CRRuntime_32bit_13_0_39.msi"
 $ArquivosRelease += "crdb_adoplus.zip"
 }
 
+if ($Modo -eq "2") {
+$ArquivosRelease += "VC_redist.x86.exe"
+$ArquivosRelease += "VC_redist.x64.exe"
+}
+
 if ($Modo -eq "3") {
 $ArquivosRelease += "dotnet48.exe"
 $ArquivosRelease += "VC_redist.x86.exe"
