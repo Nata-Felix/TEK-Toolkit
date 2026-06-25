@@ -64,6 +64,7 @@ namespace TekSoftwareSuporte
         private Process runningProcess;
         private volatile bool cancelRequested;
         private string tempDir;
+        private string guiLogPath;
         private int completedUnits;
         private int totalUnits;
         private PrinterDriver selectedPrinter;
@@ -810,7 +811,7 @@ namespace TekSoftwareSuporte
                 statusLabel.Text = "Processo concluido";
                 AppendLog("[OK] Processo finalizado.");
 
-                if (closeWhenDoneCheckBox.Checked || plan.CloseWhenServerMigrationFinalCopyEnds)
+                if (closeWhenDoneCheckBox.Checked)
                 {
                     BeginInvoke(new Action(Close));
                 }
@@ -897,7 +898,6 @@ namespace TekSoftwareSuporte
                 }
 
                 plan.ServerMigration = selectedServerMigration;
-                plan.CloseWhenServerMigrationFinalCopyEnds = selectedServerMigration.IsNovoServidor && selectedServerMigration.CopiarFinal;
 
                 if (selectedServerMigration.IsNovoServidor)
                 {
@@ -951,6 +951,7 @@ namespace TekSoftwareSuporte
                 Path.GetTempPath(),
                 "TekSoftwareSuporte_" + Process.GetCurrentProcess().Id + "_" + DateTime.Now.ToString("yyyyMMddHHmmss"));
             Directory.CreateDirectory(tempDir);
+            guiLogPath = Path.Combine(tempDir, "TekSoftwareSuporte_GUI.log");
 
             AppendLog("[INFO] Pasta temporaria: " + tempDir);
 
@@ -1197,15 +1198,48 @@ namespace TekSoftwareSuporte
 
         private void AppendLog(string text)
         {
+            AppendLog(text, true);
+        }
+
+        private void AppendLog(string text, bool writeFile)
+        {
             if (logBox.InvokeRequired)
             {
-                logBox.BeginInvoke(new Action<string>(AppendLog), text);
+                if (writeFile)
+                {
+                    WriteGuiLogFile(text);
+                }
+
+                logBox.BeginInvoke(new Action<string, bool>(AppendLog), text, false);
                 return;
+            }
+
+            if (writeFile)
+            {
+                WriteGuiLogFile(text);
             }
 
             logBox.AppendText(text + Environment.NewLine);
             logBox.SelectionStart = logBox.TextLength;
             logBox.ScrollToCaret();
+        }
+
+        private void WriteGuiLogFile(string text)
+        {
+            try
+            {
+                if (String.IsNullOrWhiteSpace(guiLogPath))
+                {
+                    return;
+                }
+
+                File.AppendAllText(
+                    guiLogPath,
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " - " + text + Environment.NewLine);
+            }
+            catch
+            {
+            }
         }
 
         private void SetInputsEnabled(bool enabled)
@@ -1266,7 +1300,6 @@ namespace TekSoftwareSuporte
         public PrinterDriver PrinterDriver;
         public ServerMigrationPlan ServerMigration;
         public SefazTimeZoneOption SefazTimeZone;
-        public bool CloseWhenServerMigrationFinalCopyEnds;
         public readonly List<string> PrintersToRemove = new List<string>();
         public readonly List<string> PrinterDriversToRemove = new List<string>();
         public readonly List<ActionOption> Actions = new List<ActionOption>();
