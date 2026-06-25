@@ -714,8 +714,31 @@ function AbrirRadminVpn {
         return
     }
 
-    LogMsg "Abrindo interface do Radmin VPN: $Executavel"
-    Start-Process -FilePath $Executavel -ErrorAction Stop
+    $Diretorio = Split-Path -Parent $Executavel
+    LogMsg "Abrindo interface do Radmin VPN: $Executavel /show"
+
+    try {
+        Start-Process -FilePath $Executavel -ArgumentList "/show" -WorkingDirectory $Diretorio -ErrorAction Stop
+        Start-Sleep -Seconds 2
+    }
+    catch {
+        LogMsg "AVISO: Falha ao abrir Radmin VPN com /show: $($_.Exception.Message)"
+    }
+
+    $ProcessoGui = Get-Process -Name "RvRvpnGui" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ProcessoGui) {
+        LogMsg "Processo da interface Radmin VPN em execucao. PID: $($ProcessoGui.Id)"
+    }
+    else {
+        $AtalhoPublico = Join-Path $env:PUBLIC "Desktop\Radmin VPN.lnk"
+        if (Test-Path $AtalhoPublico) {
+            LogMsg "Tentando abrir Radmin VPN pelo atalho publico: $AtalhoPublico"
+            Start-Process -FilePath "explorer.exe" -ArgumentList "`"$AtalhoPublico`"" -ErrorAction SilentlyContinue
+        }
+        else {
+            LogMsg "AVISO: Processo RvRvpnGui nao localizado apos tentativa de abertura."
+        }
+    }
 }
 
 function PararProcessosRadminVpn {
@@ -751,6 +774,31 @@ function ObterInstalacoesRadminVpn {
     foreach ($Path in $Paths) {
         Get-ItemProperty -Path $Path -ErrorAction SilentlyContinue | Where-Object {
             $_.DisplayName -match "(?i)Radmin\s*VPN"
+        }
+    }
+}
+
+function ObterInstalacoesRadminVpnUnicas {
+    $Vistas = @{}
+
+    foreach ($App in @(ObterInstalacoesRadminVpn)) {
+        $Chave = $App.UninstallString
+
+        if ([string]::IsNullOrWhiteSpace($Chave)) {
+            $Chave = $App.QuietUninstallString
+        }
+
+        if ([string]::IsNullOrWhiteSpace($Chave)) {
+            $Chave = $App.PSChildName
+        }
+
+        if ([string]::IsNullOrWhiteSpace($Chave)) {
+            $Chave = $App.DisplayName
+        }
+
+        if (!$Vistas.ContainsKey($Chave)) {
+            $Vistas[$Chave] = $App
+            $App
         }
     }
 }
@@ -852,7 +900,7 @@ function RemoverRadminVpnExistente {
     LogMsg "Verificando instalacao existente do Radmin VPN."
     PararProcessosRadminVpn
 
-    $Instalacoes = @(ObterInstalacoesRadminVpn)
+    $Instalacoes = @(ObterInstalacoesRadminVpnUnicas)
 
     if ($Instalacoes.Count -eq 0) {
         LogMsg "Nenhuma instalacao anterior do Radmin VPN encontrada no registro."
@@ -879,6 +927,50 @@ function RemoverRadminVpnExistente {
     RemoverPastasRadminVpn
 }
 
+function PrepararServicoRadminVpn {
+    $Servico = Get-Service -Name "RvControlSvc" -ErrorAction SilentlyContinue
+
+    if (!$Servico) {
+        LogMsg "AVISO: Servico RvControlSvc nao encontrado apos instalacao."
+        return
+    }
+
+    try {
+        Set-Service -Name "RvControlSvc" -StartupType Automatic -ErrorAction SilentlyContinue
+    }
+    catch {
+    }
+
+    if ($Servico.Status -ne "Running") {
+        LogMsg "Iniciando servico Radmin VPN Control Service."
+        Start-Service -Name "RvControlSvc" -ErrorAction SilentlyContinue
+    }
+
+    for ($Tentativa = 1; $Tentativa -le 20; $Tentativa++) {
+        $Servico = Get-Service -Name "RvControlSvc" -ErrorAction SilentlyContinue
+        if ($Servico -and $Servico.Status -eq "Running") {
+            LogMsg "Servico Radmin VPN em execucao."
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    LogMsg "AVISO: Servico Radmin VPN nao confirmou execucao apos a instalacao."
+}
+
+function RegistrarInstalacaoRadminVpn {
+    $App = @(ObterInstalacoesRadminVpn | Select-Object -First 1)
+
+    if ($App.Count -gt 0) {
+        $Versao = if ([string]::IsNullOrWhiteSpace($App[0].DisplayVersion)) { "versao nao informada" } else { $App[0].DisplayVersion }
+        LogMsg "Radmin VPN instalado no registro: $($App[0].DisplayName) / DisplayVersion: $Versao"
+    }
+    else {
+        LogMsg "AVISO: Radmin VPN nao localizado no registro apos instalacao."
+    }
+}
+
 function InstalarRadminVpn {
     BaixarRadminVpnSeNecessario
 
@@ -903,7 +995,8 @@ function InstalarRadminVpn {
         throw "Instalacao do Radmin VPN retornou codigo $($Processo.ExitCode)."
     }
 
-    Start-Sleep -Seconds 2
+    PrepararServicoRadminVpn
+    RegistrarInstalacaoRadminVpn
     AbrirRadminVpn
 }
 
