@@ -809,9 +809,7 @@ function InstalarGpeditMsc {
 
 function ObterMapeamentosTekSoftware {
     @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=4" -ErrorAction SilentlyContinue | Where-Object {
-        $_.ProviderName -match "^\\\\[^\\]+\\TekSoftware\\?$" -or
-        (Test-Path (Join-Path ($_.DeviceID + "\") "TekSoftware\TekFarma\TekAplicacao.exe")) -or
-        (Test-Path (Join-Path ($_.DeviceID + "\") "TekFarma\TekAplicacao.exe"))
+        $_.ProviderName -match "^\\\\[^\\]+\\TekSoftware\\?$"
     })
 }
 
