@@ -2493,7 +2493,7 @@ function ExecutarRobocopyTroca {
     New-Item -ItemType Directory -Path $Destino -Force | Out-Null
 
     $RoboLog = Join-Path $Base ("troca_servidor_robocopy_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".log")
-    $Argumentos = @($Origem, $Destino, "/E", "/Z", "/R:3", "/W:5", "/MT:16", "/NP", "/TEE", "/LOG+:$RoboLog")
+    $Argumentos = @($Origem, $Destino, "/E", "/Z", "/R:3", "/W:5", "/MT:16", "/NP", "/IS", "/IT", "/TEE", "/LOG+:$RoboLog")
 
     if ($PastasExcluir -and $PastasExcluir.Count -gt 0) {
         $Argumentos += "/XD"
@@ -2502,14 +2502,13 @@ function ExecutarRobocopyTroca {
 
     LogMsg "Executando ${Nome}: robocopy $($Argumentos -join ' ')"
 
-    $Saida = & robocopy.exe @Argumentos 2>&1
-    $Codigo = $LASTEXITCODE
-
-    foreach ($Linha in @($Saida)) {
-        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
-            LogMsg "$Linha"
+    & robocopy.exe @Argumentos 2>&1 | ForEach-Object {
+        if ($null -ne $_ -and "$_".Trim().Length -gt 0) {
+            LogMsg "$_"
         }
     }
+
+    $Codigo = $LASTEXITCODE
 
     LogMsg "Robocopy finalizado com codigo $Codigo. Log: $RoboLog"
 
@@ -2597,13 +2596,14 @@ function RenomearComputadorTroca {
 
     if ($env:COMPUTERNAME -ieq $NovoNome) {
         LogMsg "Computador ja se chama $NovoNome. Reinicio nao sera agendado por renomeacao."
-        return
+        return $false
     }
 
     LogMsg "Renomeando computador para $NovoNome"
     Rename-Computer -NewName $NovoNome -Force -ErrorAction Stop
     LogMsg "Renomeacao solicitada. Agendando reinicio em 60 segundos."
     shutdown.exe /r /t 60 /c "Troca de servidor TekSoftware: reinicio necessario para aplicar nome $NovoNome." | Out-Null
+    return $true
 }
 
 function EscaparTextoScriptTroca {
@@ -2614,6 +2614,117 @@ function EscaparTextoScriptTroca {
     }
 
     return (($Texto -replace '`', '``') -replace '"', '`"')
+}
+
+function ObterHostUncTroca {
+    param([string]$Caminho)
+
+    if ($Caminho -match "^\\\\([^\\]+)\\") {
+        return $Matches[1]
+    }
+
+    return ""
+}
+
+function PrepararConexaoOrigemTroca {
+    param([string]$Origem)
+
+    $HostOrigem = ObterHostUncTroca -Caminho $Origem
+
+    if ([string]::IsNullOrWhiteSpace($HostOrigem)) {
+        return
+    }
+
+    LogMsg "Configurando credencial convidado para $HostOrigem."
+
+    try {
+        cmdkey.exe /delete:$HostOrigem 2>&1 | Out-Null
+    }
+    catch {
+    }
+
+    try {
+        cmdkey.exe /add:$HostOrigem /user:convidado /pass:"" 2>&1 | Out-Null
+    }
+    catch {
+        LogMsg "AVISO: falha ao configurar cmdkey para ${HostOrigem}: $($_.Exception.Message)"
+    }
+
+    try {
+        net.exe use $Origem /delete /y 2>&1 | Out-Null
+    }
+    catch {
+    }
+
+    try {
+        net.exe use $Origem /user:convidado "" /persistent:no 2>&1 | Out-Null
+        LogMsg "Conexao de rede preparada para $Origem."
+    }
+    catch {
+        LogMsg "AVISO: falha ao preparar net use para ${Origem}: $($_.Exception.Message)"
+    }
+}
+
+function ObterParPastasFinaisTroca {
+    param(
+        [string]$OrigemFinal,
+        [string]$DestinoFinal,
+        [string]$Pasta
+    )
+
+    $OrigemPastaTekFarma = Join-Path (Join-Path $OrigemFinal "TekFarma") $Pasta
+    $DestinoPastaTekFarma = Join-Path (Join-Path $DestinoFinal "TekFarma") $Pasta
+    $OrigemPasta = Join-Path $OrigemFinal $Pasta
+    $DestinoPasta = Join-Path $DestinoFinal $Pasta
+
+    if (Test-Path $OrigemPastaTekFarma) {
+        return @{
+            Origem = $OrigemPastaTekFarma
+            Destino = $DestinoPastaTekFarma
+        }
+    }
+
+    return @{
+        Origem = $OrigemPasta
+        Destino = $DestinoPasta
+    }
+}
+
+function ExecutarCopiaFinalTrocaServidor {
+    param(
+        [string]$OrigemFinal,
+        [string[]]$Pastas
+    )
+
+    $PastasUnicas = @($Pastas | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+
+    if ($PastasUnicas.Count -eq 0) {
+        $PastasUnicas = @("NFe", "NFCe")
+    }
+
+    LogMsg "Iniciando copia final de troca de servidor."
+    LogMsg "Origem final: $OrigemFinal"
+    LogMsg "Destino final: $RaizTekSoftware"
+    LogMsg "Pastas finais: $($PastasUnicas -join ', ')"
+
+    PrepararConexaoOrigemTroca -Origem $OrigemFinal
+
+    if (!(Test-Path $OrigemFinal)) {
+        throw "Origem final nao acessivel: $OrigemFinal"
+    }
+
+    foreach ($Pasta in $PastasUnicas) {
+        $Par = ObterParPastasFinaisTroca -OrigemFinal $OrigemFinal -DestinoFinal $RaizTekSoftware -Pasta $Pasta
+
+        if (!(Test-Path $Par.Origem)) {
+            LogMsg "AVISO: pasta final nao encontrada na origem: $($Par.Origem)"
+            continue
+        }
+
+        ExecutarRobocopyTroca -Nome "Copia final $Pasta" -Origem $Par.Origem -Destino $Par.Destino
+    }
+
+    LogMsg "Copia final de troca de servidor concluida."
 }
 
 function CriarScriptCopiaFinalTrocaServidor {
@@ -2780,7 +2891,7 @@ try {
         $RoboLog = Join-Path $BaseDir "robocopy_final_$NomeLogSeguro.log"
 
         LogFinal "Copiando pasta final: $Pasta"
-        robocopy.exe $OrigemPasta $DestinoPasta /E /Z /R:3 /W:5 /MT:16 /NP /TEE /LOG+:$RoboLog | Out-Null
+        robocopy.exe $OrigemPasta $DestinoPasta /E /Z /R:3 /W:5 /MT:16 /NP /IS /IT /TEE /LOG+:$RoboLog | Out-Null
         $Codigo = $LASTEXITCODE
         LogFinal "Robocopy $Pasta finalizado com codigo $Codigo. Log: $RoboLog"
 
@@ -2904,19 +3015,49 @@ function ExecutarTrocaServidor {
             }
         }
 
-        if (ConverterTextoBooleano $TrocaCopiarFinal) {
-            ExecutarPasso "Agendar copia final apos reinicio" {
-                AgendarCopiaFinalTrocaServidor -OrigemFinal "\\ANTIGO\TekSoftware" -Pastas @(ObterPastasExclusaoTroca)
+        $DeveCopiarFinal = ConverterTextoBooleano $TrocaCopiarFinal
+        $RenomeacaoMarcada = ConverterTextoBooleano $TrocaRenomearReiniciar
+        $ReinicioAgendado = $false
+
+        if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
+            LogMsg "Renomeacao/reinicio selecionados. Verificando se este computador ja esta com o nome SERVIDOR."
+            $ReinicioAgendado = [bool](RenomearComputadorTroca -NovoNome "SERVIDOR")
+
+            if ($ReinicioAgendado) {
+                if ($DeveCopiarFinal) {
+                    ExecutarPasso "Agendar copia final apos reinicio" {
+                        AgendarCopiaFinalTrocaServidor -OrigemFinal "\\ANTIGO\TekSoftware" -Pastas @(ObterPastasExclusaoTroca)
+                    }
+                }
+
+                LogMsg "Reinicio agendado. A copia final ficara para o proximo inicio/logon."
+                return
+            }
+
+            LogMsg "Nome do computador ja esta correto. A troca vai continuar sem reiniciar."
+        }
+
+        if ($DeveCopiarFinal) {
+            $OrigemFinal = $Origem
+
+            if ($RenomeacaoMarcada) {
+                $OrigemFinal = "\\ANTIGO\TekSoftware"
+            }
+
+            LogMsg "====================================="
+            LogMsg "INICIANDO: Copiar pastas finais"
+
+            try {
+                ExecutarCopiaFinalTrocaServidor -OrigemFinal $OrigemFinal -Pastas @(ObterPastasExclusaoTroca)
+                LogMsg "FINALIZADO: Copiar pastas finais"
+            }
+            catch {
+                LogMsg "ERRO no passo 'Copiar pastas finais': $($_.Exception.Message)"
+                throw
             }
         }
 
-        if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
-            LogMsg "Renomeacao/reinicio selecionados. Se a copia final foi marcada, ela ja ficou agendada para o proximo inicio/logon."
-            RenomearComputadorTroca -NovoNome "SERVIDOR"
-            return
-        }
-
-        LogMsg "Troca do novo servidor processada. Fluxo humano: confirme os terminais e acompanhe a copia final agendada se ela foi marcada."
+        LogMsg "Troca do novo servidor processada. Fluxo humano: confirme os terminais e acompanhe a copia final se ela foi marcada."
         return
     }
 
@@ -2928,7 +3069,7 @@ function ExecutarTrocaServidor {
         }
 
         if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
-            RenomearComputadorTroca -NovoNome "ANTIGO"
+            $null = RenomearComputadorTroca -NovoNome "ANTIGO"
         }
         else {
             LogMsg "Renomeacao para ANTIGO nao selecionada."
