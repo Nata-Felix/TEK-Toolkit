@@ -6,7 +6,17 @@ param(
     [string]$ImpressoraArquivo = "",
     [string]$ImpressoraInstalador = "",
     [string]$RemoverImpressoras = "",
-    [string]$RemoverDriversImpressora = ""
+    [string]$RemoverDriversImpressora = "",
+    [string]$TrocaPerfil = "",
+    [string]$TrocaHostAntigo = "SERVIDOR",
+    [string]$TrocaTipoVersao = "normal",
+    [string]$TrocaCopiarPrincipal = "true",
+    [string]$TrocaCopiarFinal = "false",
+    [string]$TrocaInstalarFull = "true",
+    [string]$TrocaInstalarFirebird = "true",
+    [string]$TrocaConfigurarRede = "true",
+    [string]$TrocaRenomearReiniciar = "false",
+    [string]$TrocaExcluirPastas = "XML;Xml;xml;NFe;NFCe;SAT;CTe;MDFe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -2422,6 +2432,245 @@ function ReinstalarFirebird {
     IniciarServicosFirebird
 }
 
+function ConverterTextoBooleano {
+    param([string]$Valor)
+
+    return $Valor -match "^(?i)(1|true|sim|yes|y|s)$"
+}
+
+function ObterOrigemTekSoftwareTroca {
+    $Valor = $TrocaHostAntigo
+
+    if ([string]::IsNullOrWhiteSpace($Valor)) {
+        $Valor = "SERVIDOR"
+    }
+
+    $Valor = $Valor.Trim().TrimEnd("\")
+
+    if ($Valor.StartsWith("\\")) {
+        if ($Valor -match "^\\\\[^\\]+\\[^\\]+") {
+            return $Valor
+        }
+
+        return "$Valor\TekSoftware"
+    }
+
+    if ($Valor.Contains("\")) {
+        return "\\" + $Valor.Trim("\")
+    }
+
+    return "\\$Valor\TekSoftware"
+}
+
+function ObterPastasExclusaoTroca {
+    if ([string]::IsNullOrWhiteSpace($TrocaExcluirPastas)) {
+        return @()
+    }
+
+    @($TrocaExcluirPastas -split "[,;]" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function ExecutarRobocopyTroca {
+    param(
+        [string]$Nome,
+        [string]$Origem,
+        [string]$Destino,
+        [string[]]$PastasExcluir = @()
+    )
+
+    if (!(Test-Path $Origem)) {
+        LogMsg "AVISO: Origem nao acessivel antes do robocopy: $Origem"
+    }
+
+    New-Item -ItemType Directory -Path $Destino -Force | Out-Null
+
+    $RoboLog = Join-Path $Base ("troca_servidor_robocopy_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".log")
+    $Argumentos = @($Origem, $Destino, "/E", "/Z", "/R:3", "/W:5", "/MT:16", "/NP", "/TEE", "/LOG+:$RoboLog")
+
+    if ($PastasExcluir -and $PastasExcluir.Count -gt 0) {
+        $Argumentos += "/XD"
+        $Argumentos += $PastasExcluir
+    }
+
+    LogMsg "Executando ${Nome}: robocopy $($Argumentos -join ' ')"
+
+    $Saida = & robocopy.exe @Argumentos 2>&1
+    $Codigo = $LASTEXITCODE
+
+    foreach ($Linha in @($Saida)) {
+        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+            LogMsg "$Linha"
+        }
+    }
+
+    LogMsg "Robocopy finalizado com codigo $Codigo. Log: $RoboLog"
+
+    if ($Codigo -gt 7) {
+        throw "Robocopy retornou erro $Codigo."
+    }
+}
+
+function GarantirCompartilhamentoTekSoftwareSuporte {
+    New-Item -ItemType Directory -Path $RaizTekSoftware -Force | Out-Null
+
+    if (Get-Command New-SmbShare -ErrorAction SilentlyContinue) {
+        try {
+            $Share = Get-SmbShare -Name "TekSoftware" -ErrorAction SilentlyContinue
+
+            if ($Share -and $Share.Path -ne $RaizTekSoftware) {
+                LogMsg "Removendo compartilhamento TekSoftware apontando para: $($Share.Path)"
+                Remove-SmbShare -Name "TekSoftware" -Force -ErrorAction SilentlyContinue
+                $Share = $null
+            }
+
+            if (!$Share) {
+                LogMsg "Criando compartilhamento TekSoftware -> $RaizTekSoftware"
+                New-SmbShare -Name "TekSoftware" -Path $RaizTekSoftware -Description "TekSoftware" | Out-Null
+            }
+
+            foreach ($Conta in @("Todos", "Everyone", "Rede", "Network", "Convidado", "Guest")) {
+                try {
+                    Grant-SmbShareAccess -Name "TekSoftware" -AccountName $Conta -AccessRight Full -Force -ErrorAction Stop | Out-Null
+                    LogMsg "Permissao de compartilhamento aplicada para: $Conta"
+                }
+                catch {
+                }
+            }
+        }
+        catch {
+            LogMsg "AVISO: Falha ao configurar compartilhamento SMB: $($_.Exception.Message)"
+        }
+    }
+    else {
+        LogMsg "AVISO: New-SmbShare nao disponivel neste Windows."
+    }
+
+    foreach ($Sid in @("S-1-1-0", "S-1-5-2", "S-1-5-32-546")) {
+        try {
+            & icacls.exe $RaizTekSoftware /grant "*$Sid`:(OI)(CI)F" /T /C | Out-Null
+            LogMsg "Permissao NTFS aplicada para SID $Sid"
+        }
+        catch {
+            LogMsg "AVISO: Falha ao aplicar permissao NTFS para SID ${Sid}: $($_.Exception.Message)"
+        }
+    }
+}
+
+function ExecutarInstalacaoFullTroca {
+    $ScriptFull = Join-Path $Base "instalar.ps1"
+
+    if (!(Test-Path $ScriptFull)) {
+        throw "Script FULL nao encontrado: $ScriptFull"
+    }
+
+    $Tipo = $TrocaTipoVersao
+    if ($Tipo -notin @("normal", "i")) {
+        $Tipo = "normal"
+    }
+
+    LogMsg "Executando FULL no novo servidor: versao=$Tipo"
+    $Argumentos = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $ScriptFull, "-Modo", "3", "-TipoVersao", $Tipo)
+    $Saida = & powershell.exe @Argumentos 2>&1
+    $Codigo = $LASTEXITCODE
+
+    foreach ($Linha in @($Saida)) {
+        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+            LogMsg "$Linha"
+        }
+    }
+
+    if ($Codigo -ne 0) {
+        throw "Instalacao FULL retornou codigo $Codigo."
+    }
+}
+
+function RenomearComputadorTroca {
+    param([string]$NovoNome)
+
+    if ($env:COMPUTERNAME -ieq $NovoNome) {
+        LogMsg "Computador ja se chama $NovoNome. Reinicio nao sera agendado por renomeacao."
+        return
+    }
+
+    LogMsg "Renomeando computador para $NovoNome"
+    Rename-Computer -NewName $NovoNome -Force -ErrorAction Stop
+    LogMsg "Renomeacao solicitada. Agendando reinicio em 60 segundos."
+    shutdown.exe /r /t 60 /c "Troca de servidor TekSoftware: reinicio necessario para aplicar nome $NovoNome." | Out-Null
+}
+
+function ExecutarTrocaServidor {
+    $Perfil = $TrocaPerfil.Trim().ToLowerInvariant()
+
+    if ($Perfil -eq "novo") {
+        $Origem = ObterOrigemTekSoftwareTroca
+        LogMsg "Modo troca: novo servidor"
+        LogMsg "Origem TekSoftware: $Origem"
+        LogMsg "Destino TekSoftware: $RaizTekSoftware"
+
+        if (ConverterTextoBooleano $TrocaConfigurarRede) {
+            ExecutarPasso "Configurar rede avancada" {
+                ConfigurarRedeAvancada
+            }
+
+            ExecutarPasso "Compartilhar C:\TekSoftware" {
+                GarantirCompartilhamentoTekSoftwareSuporte
+            }
+        }
+
+        if (ConverterTextoBooleano $TrocaInstalarFirebird) {
+            ExecutarPasso "Instalar/reinstalar Firebird no novo servidor" {
+                ReinstalarFirebird
+            }
+        }
+
+        if (ConverterTextoBooleano $TrocaCopiarPrincipal) {
+            ExecutarPasso "Pre-copiar TekSoftware sem pastas pesadas" {
+                ExecutarRobocopyTroca -Nome "Pre-copia TekSoftware" -Origem $Origem -Destino $RaizTekSoftware -PastasExcluir @(ObterPastasExclusaoTroca)
+            }
+        }
+
+        if (ConverterTextoBooleano $TrocaInstalarFull) {
+            ExecutarPasso "Executar FULL versao + Crystal" {
+                ExecutarInstalacaoFullTroca
+            }
+        }
+
+        if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
+            LogMsg "Renomeacao/reinicio selecionados. Se precisar de copia final/XML, rode novamente apos reiniciar."
+            RenomearComputadorTroca -NovoNome "SERVIDOR"
+            return
+        }
+
+        if (ConverterTextoBooleano $TrocaCopiarFinal) {
+            ExecutarPasso "Copia final TekSoftware/pastas XML" {
+                ExecutarRobocopyTroca -Nome "Copia final TekSoftware" -Origem $Origem -Destino $RaizTekSoftware
+            }
+        }
+
+        LogMsg "Troca do novo servidor processada. Fluxo humano: confirme os terminais e rode a copia final/XML se ainda estiver pendente."
+        return
+    }
+
+    if ($Perfil -eq "antigo") {
+        LogMsg "Modo troca: servidor antigo"
+
+        ExecutarPasso "Remover Firebird do servidor antigo" {
+            RemoverFirebirdExistente
+        }
+
+        if (ConverterTextoBooleano $TrocaRenomearReiniciar) {
+            RenomearComputadorTroca -NovoNome "OLD"
+        }
+        else {
+            LogMsg "Renomeacao para OLD nao selecionada."
+        }
+
+        return
+    }
+
+    throw "Perfil de troca invalido: $TrocaPerfil"
+}
+
 Clear-Host
 
 LogMsg "====================================="
@@ -2432,6 +2681,9 @@ LogMsg "HostServidor recebido: $HostServidor"
 if (![string]::IsNullOrWhiteSpace($ImpressoraArquivo)) {
     LogMsg "Impressora recebida: $ImpressoraMarca / $ImpressoraModelo / $ImpressoraArquivo"
     LogMsg "Remocao previa recebida: impressoras=$(@(ConverterListaArgumentos -Texto $RemoverImpressoras).Count), drivers=$(@(ConverterListaArgumentos -Texto $RemoverDriversImpressora).Count)"
+}
+if (![string]::IsNullOrWhiteSpace($TrocaPerfil)) {
+    LogMsg "Troca de servidor recebida: perfil=$TrocaPerfil hostAntigo=$TrocaHostAntigo versao=$TrocaTipoVersao"
 }
 LogMsg "Base: $Base"
 
@@ -2475,6 +2727,11 @@ foreach ($Acao in $ListaAcoes) {
         "firebird" {
             ExecutarPassoAdmin "Reinstalar Firebird" {
                 ReinstalarFirebird
+            }
+        }
+        "trocaservidor" {
+            ExecutarPassoAdmin "Troca de servidor" {
+                ExecutarTrocaServidor
             }
         }
         "net35" {
