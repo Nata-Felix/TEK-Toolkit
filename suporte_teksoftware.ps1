@@ -1436,6 +1436,66 @@ function CorrigirWindowsUpdate {
     LogMsg "Windows Update fix finalizado."
 }
 
+function LimparConteudoPastaManutencao {
+    param(
+        [string]$Nome,
+        [string]$Caminho,
+        [string[]]$Permitidos
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Caminho)) {
+        LogMsg "AVISO: caminho vazio para limpeza: $Nome"
+        return
+    }
+
+    $FullPath = [System.IO.Path]::GetFullPath($Caminho)
+    $PermitidosNormalizados = @($Permitidos | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
+        [System.IO.Path]::GetFullPath($_).TrimEnd("\")
+    })
+
+    if ($PermitidosNormalizados -notcontains $FullPath.TrimEnd("\")) {
+        throw "Caminho de limpeza nao permitido para ${Nome}: $FullPath"
+    }
+
+    if (!(Test-Path $FullPath)) {
+        LogMsg "Pasta nao encontrada para limpeza: $FullPath"
+        return
+    }
+
+    LogMsg "Limpando conteudo de ${Nome}: $FullPath"
+    $Itens = @(Get-ChildItem -LiteralPath $FullPath -Force -ErrorAction SilentlyContinue)
+    $Removidos = 0
+    $Falhas = 0
+
+    foreach ($Item in $Itens) {
+        try {
+            Remove-Item -LiteralPath $Item.FullName -Recurse -Force -ErrorAction Stop
+            $Removidos++
+        }
+        catch {
+            $Falhas++
+        }
+    }
+
+    LogMsg "Limpeza de ${Nome} concluida. Itens removidos: $Removidos. Itens ignorados/em uso: $Falhas."
+}
+
+function ExecutarLimpezaReparoWindows {
+    $WindowsTemp = Join-Path $env:SystemRoot "Temp"
+    $Prefetch = Join-Path $env:SystemRoot "Prefetch"
+    $UserTemp = Join-Path $env:LOCALAPPDATA "Temp"
+
+    $Permitidos = @($WindowsTemp, $Prefetch, $UserTemp)
+
+    LimparConteudoPastaManutencao -Nome "Windows Temp" -Caminho $WindowsTemp -Permitidos $Permitidos
+    LimparConteudoPastaManutencao -Nome "Windows Prefetch" -Caminho $Prefetch -Permitidos $Permitidos
+    LimparConteudoPastaManutencao -Nome "Temp do usuario" -Caminho $UserTemp -Permitidos $Permitidos
+
+    ExecutarComandoManutencao -Nome "SFC /scannow" -Arquivo "sfc.exe" -Argumentos @("/scannow")
+    ExecutarComandoManutencao -Nome "DISM RestoreHealth" -Arquivo "dism.exe" -Argumentos @("/online", "/cleanup-image", "/restorehealth")
+    LogMsg "Limpeza e reparo Windows finalizado."
+}
+
 function AumentarCacheIcone {
     $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer"
 
@@ -3729,6 +3789,11 @@ foreach ($Acao in $ListaAcoes) {
         "windowsupdatefix" {
             ExecutarPassoAdmin "Corrigir Windows Update" {
                 CorrigirWindowsUpdate
+            }
+        }
+        "limpezareparowindows" {
+            ExecutarPassoAdmin "Limpeza e reparo Windows" {
+                ExecutarLimpezaReparoWindows
             }
         }
         "cacheicone" {
