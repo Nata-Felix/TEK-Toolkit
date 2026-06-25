@@ -828,6 +828,189 @@ function RemoverMapeamentosTekSoftware {
     }
 }
 
+function ExecutarProcessoMapeamentoComTimeout {
+    param(
+        [string]$Arquivo,
+        [string]$Argumentos,
+        [int]$TimeoutSegundos = 12
+    )
+
+    $Psi = New-Object System.Diagnostics.ProcessStartInfo
+    $Psi.FileName = $Arquivo
+    $Psi.Arguments = $Argumentos
+    $Psi.UseShellExecute = $false
+    $Psi.RedirectStandardOutput = $true
+    $Psi.RedirectStandardError = $true
+    $Psi.CreateNoWindow = $true
+
+    $Processo = New-Object System.Diagnostics.Process
+    $Processo.StartInfo = $Psi
+
+    try {
+        [void]$Processo.Start()
+
+        if (-not $Processo.WaitForExit($TimeoutSegundos * 1000)) {
+            try {
+                $Processo.Kill()
+            }
+            catch {
+            }
+
+            return [pscustomobject]@{
+                ExitCode = 124
+                TimedOut = $true
+                Output = @("Tempo limite de ${TimeoutSegundos}s atingido.")
+            }
+        }
+
+        $StdOut = $Processo.StandardOutput.ReadToEnd()
+        $StdErr = $Processo.StandardError.ReadToEnd()
+        $Linhas = @()
+
+        if (![string]::IsNullOrWhiteSpace($StdOut)) {
+            $Linhas += @($StdOut -split "(`r`n|`n|`r)" | Where-Object { $_.Trim().Length -gt 0 })
+        }
+
+        if (![string]::IsNullOrWhiteSpace($StdErr)) {
+            $Linhas += @($StdErr -split "(`r`n|`n|`r)" | Where-Object { $_.Trim().Length -gt 0 })
+        }
+
+        return [pscustomobject]@{
+            ExitCode = $Processo.ExitCode
+            TimedOut = $false
+            Output = $Linhas
+        }
+    }
+    finally {
+        if ($Processo) {
+            $Processo.Dispose()
+        }
+    }
+}
+
+function AdicionarLetraOcupada {
+    param(
+        [hashtable]$Letras,
+        [string]$Valor
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Valor)) {
+        return
+    }
+
+    foreach ($Match in [regex]::Matches($Valor, "(?i)\b([A-Z]):")) {
+        $Letras[$Match.Groups[1].Value.ToUpperInvariant()] = $true
+    }
+
+    if ($Valor -match "^[A-Za-z]$") {
+        $Letras[$Valor.ToUpperInvariant()] = $true
+    }
+}
+
+function ObterLetrasOcupadasMapeamento {
+    $Letras = @{}
+
+    try {
+        foreach ($Drive in @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
+            AdicionarLetraOcupada -Letras $Letras -Valor $Drive.Name
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar Get-PSDrive: $($_.Exception.Message)"
+    }
+
+    try {
+        foreach ($Drive in @(Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue)) {
+            AdicionarLetraOcupada -Letras $Letras -Valor $Drive.DeviceID
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar Win32_LogicalDisk: $($_.Exception.Message)"
+    }
+
+    try {
+        foreach ($Drive in @([System.IO.DriveInfo]::GetDrives())) {
+            AdicionarLetraOcupada -Letras $Letras -Valor $Drive.Name
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar DriveInfo: $($_.Exception.Message)"
+    }
+
+    try {
+        if (Test-Path "HKCU:\Network") {
+            foreach ($Item in @(Get-ChildItem "HKCU:\Network" -ErrorAction SilentlyContinue)) {
+                AdicionarLetraOcupada -Letras $Letras -Valor $Item.PSChildName
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar HKCU:\Network: $($_.Exception.Message)"
+    }
+
+    try {
+        $ResultadoNetUse = ExecutarProcessoMapeamentoComTimeout -Arquivo "cmd.exe" -Argumentos "/c net use" -TimeoutSegundos 6
+
+        if ($ResultadoNetUse.TimedOut) {
+            LogMsg "AVISO: Consulta net use travou. Seguindo com as demais fontes."
+        }
+        else {
+            foreach ($Linha in @($ResultadoNetUse.Output)) {
+                AdicionarLetraOcupada -Letras $Letras -Valor $Linha
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar net use: $($_.Exception.Message)"
+    }
+
+    try {
+        $ResultadoSubst = ExecutarProcessoMapeamentoComTimeout -Arquivo "cmd.exe" -Argumentos "/c subst" -TimeoutSegundos 6
+
+        if (-not $ResultadoSubst.TimedOut) {
+            foreach ($Linha in @($ResultadoSubst.Output)) {
+                AdicionarLetraOcupada -Letras $Letras -Valor $Linha
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar subst: $($_.Exception.Message)"
+    }
+
+    return $Letras
+}
+
+function ObterLetrasLivresMapeamento {
+    $Ocupadas = ObterLetrasOcupadasMapeamento
+    $OcupadasTexto = @($Ocupadas.Keys | Sort-Object | ForEach-Object { "$_`:" }) -join ", "
+
+    if ([string]::IsNullOrWhiteSpace($OcupadasTexto)) {
+        $OcupadasTexto = "nenhuma"
+    }
+
+    LogMsg "Letras ocupadas detectadas: $OcupadasTexto"
+
+    $Livres = @()
+
+    foreach ($Codigo in ([int][char]'Z')..([int][char]'D')) {
+        $Letra = [char]$Codigo
+        $Chave = $Letra.ToString().ToUpperInvariant()
+
+        if (-not $Ocupadas.ContainsKey($Chave)) {
+            $Livres += "$Chave`:"
+        }
+    }
+
+    $LivresTexto = @($Livres) -join ", "
+
+    if ([string]::IsNullOrWhiteSpace($LivresTexto)) {
+        $LivresTexto = "nenhuma"
+    }
+
+    LogMsg "Letras livres candidatas: $LivresTexto"
+    return $Livres
+}
+
 function EncontrarTekAplicacaoEmDrive {
     param([string]$Drive)
 
@@ -871,32 +1054,35 @@ function CriarAtalhoTekFarmaMapeado {
 function TentarMapearTekSoftware {
     param([string]$CaminhoRede)
 
-    foreach ($Codigo in ([int][char]'Z')..([int][char]'D')) {
-        $Letra = [char]$Codigo
-        $Drive = "$Letra`:"
-        $Root = "$Drive\"
+    $LetrasLivres = @(ObterLetrasLivresMapeamento)
 
-        if ((Get-PSDrive -Name $Letra -ErrorAction SilentlyContinue) -or (Test-Path $Root)) {
-            LogMsg "Letra ocupada, tentando proxima: $Drive"
-            continue
-        }
+    if ($LetrasLivres.Count -eq 0) {
+        LogMsg "AVISO: Nenhuma letra livre encontrada entre Z: e D:."
+        return ""
+    }
 
+    foreach ($Drive in $LetrasLivres) {
         LogMsg "Tentando mapear $CaminhoRede em $Drive"
-        $Saida = & net.exe use $Drive $CaminhoRede /persistent:yes 2>&1
-        $CodigoSaida = $LASTEXITCODE
+        $Argumentos = "use $Drive `"$CaminhoRede`" /persistent:yes"
+        $Resultado = ExecutarProcessoMapeamentoComTimeout -Arquivo "net.exe" -Argumentos $Argumentos -TimeoutSegundos 12
 
-        foreach ($Linha in @($Saida)) {
+        foreach ($Linha in @($Resultado.Output)) {
             if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
                 LogMsg "$Linha"
             }
         }
 
-        if ($CodigoSaida -eq 0) {
+        if ($Resultado.TimedOut) {
+            LogMsg "AVISO: Mapeamento em $Drive travou. Tentando proxima letra..."
+            continue
+        }
+
+        if ($Resultado.ExitCode -eq 0) {
             LogMsg "Mapeamento criado: $Drive -> $CaminhoRede"
             return $Drive
         }
 
-        LogMsg "AVISO: Falha ao mapear em $Drive. Codigo: $CodigoSaida. Tentando proxima letra..."
+        LogMsg "AVISO: Falha ao mapear em $Drive. Codigo: $($Resultado.ExitCode). Tentando proxima letra..."
     }
 
     return ""
@@ -950,11 +1136,7 @@ function MapearTekSoftware {
         $HostRede = ObterHostDeCaminhoRede -CaminhoRede $CaminhoRede
         CriarCredencialConvidadoParaHost -HostCredencial $HostRede
 
-        LogMsg "Testando caminho de rede: $CaminhoRede"
-
-        if (!(Test-Path $CaminhoRede)) {
-            LogMsg "AVISO: Caminho de rede nao acessivel agora: $CaminhoRede"
-        }
+        LogMsg "Candidato de rede: $CaminhoRede"
 
         $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede
 
