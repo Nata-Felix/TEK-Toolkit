@@ -298,6 +298,263 @@ function InstalarCadeiaCertificado {
     }
 }
 
+function ExecutarComandoManutencao {
+    param(
+        [string]$Nome,
+        [string]$Arquivo,
+        [string[]]$Argumentos = @(),
+        [switch]$IgnorarErro
+    )
+
+    $LinhaComando = "$Arquivo $($Argumentos -join ' ')".Trim()
+    LogMsg "Executando ${Nome}: $LinhaComando"
+
+    $Saida = & $Arquivo @Argumentos 2>&1
+    $Codigo = $LASTEXITCODE
+
+    foreach ($Linha in @($Saida)) {
+        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+            LogMsg "$Linha"
+        }
+    }
+
+    if ($Codigo -ne 0) {
+        $Mensagem = "${Nome} retornou codigo ${Codigo}."
+
+        if ($IgnorarErro) {
+            LogMsg "AVISO: $Mensagem"
+        }
+        else {
+            throw $Mensagem
+        }
+    }
+
+    return $Codigo
+}
+
+function PararServicoManutencao {
+    param([string]$Nome)
+
+    try {
+        $Servico = Get-Service -Name $Nome -ErrorAction SilentlyContinue
+
+        if ($null -eq $Servico) {
+            LogMsg "AVISO: Servico nao encontrado: $Nome"
+            return
+        }
+
+        if ($Servico.Status -ne "Stopped") {
+            LogMsg "Parando servico: $Nome"
+            Stop-Service -Name $Nome -Force -ErrorAction Stop
+        }
+        else {
+            LogMsg "Servico ja parado: $Nome"
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao parar servico ${Nome}: $($_.Exception.Message)"
+    }
+}
+
+function IniciarServicoManutencao {
+    param([string]$Nome)
+
+    try {
+        $Servico = Get-Service -Name $Nome -ErrorAction SilentlyContinue
+
+        if ($null -eq $Servico) {
+            LogMsg "AVISO: Servico nao encontrado: $Nome"
+            return
+        }
+
+        LogMsg "Iniciando servico: $Nome"
+        Start-Service -Name $Nome -ErrorAction Stop
+    }
+    catch {
+        LogMsg "AVISO: Falha ao iniciar servico ${Nome}: $($_.Exception.Message)"
+    }
+}
+
+function InstalarNet35 {
+    $ArgumentosOriginais = @("/online", "/enable-feature", "/featurename:NetFX3", "/All", "/source:C:\", "/LimitAccess")
+    $Codigo = ExecutarComandoManutencao -Nome ".NET Framework 3.5 via DISM com source C:\" -Arquivo "Dism.exe" -Argumentos $ArgumentosOriginais -IgnorarErro
+
+    if ($Codigo -ne 0) {
+        LogMsg "Tentando instalar .NET 3.5 novamente usando Windows Update como origem."
+        ExecutarComandoManutencao -Nome ".NET Framework 3.5 via DISM online" -Arquivo "Dism.exe" -Argumentos @("/online", "/enable-feature", "/featurename:NetFX3", "/All", "/NoRestart")
+    }
+
+    LogMsg ".NET Framework 3.5 processado."
+}
+
+function ResetarPortasCom {
+    $Path = "HKLM:\SYSTEM\CurrentControlSet\Control\COM Name Arbiter"
+    $Name = "ComDB"
+
+    if (Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue) {
+        Remove-ItemProperty -Path $Path -Name $Name -Force
+        LogMsg "ComDB removido. Todas as portas COM reservadas foram liberadas."
+    }
+    else {
+        LogMsg "ComDB nao encontrado. Nada para remover."
+    }
+
+    LogMsg "Reinicie o computador para aplicar totalmente o reset de portas COM."
+}
+
+function RemoverSenhaCompartilhamento {
+    Set-Dword -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "LimitBlankPasswordUse" -Value 0
+    LogMsg "LimitBlankPasswordUse configurado como 0."
+}
+
+function CorrigirWindowsUpdate {
+    foreach ($Servico in @("bits", "wuauserv", "appidsvc", "cryptsvc")) {
+        PararServicoManutencao -Nome $Servico
+    }
+
+    $DownloaderPaths = @(
+        (Join-Path $env:ALLUSERSPROFILE "Application Data\Microsoft\Network\Downloader"),
+        (Join-Path $env:ALLUSERSPROFILE "Microsoft\Network\Downloader")
+    )
+
+    foreach ($Path in $DownloaderPaths) {
+        try {
+            if (Test-Path $Path) {
+                LogMsg "Limpando downloader do Windows Update: $Path"
+                Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+            LogMsg "AVISO: Falha ao limpar ${Path}: $($_.Exception.Message)"
+        }
+    }
+
+    foreach ($Path in @((Join-Path $env:SystemRoot "SoftwareDistribution"), (Join-Path $env:SystemRoot "System32\catroot2"))) {
+        try {
+            if (Test-Path $Path) {
+                LogMsg "Removendo pasta: $Path"
+                Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            LogMsg "AVISO: Falha ao remover ${Path}: $($_.Exception.Message)"
+        }
+    }
+
+    $SdBits = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;PU)"
+    $SdWuauserv = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;PU)"
+
+    ExecutarComandoManutencao -Nome "Restaurar permissao BITS" -Arquivo "sc.exe" -Argumentos @("sdset", "bits", $SdBits) -IgnorarErro | Out-Null
+    ExecutarComandoManutencao -Nome "Restaurar permissao Windows Update" -Arquivo "sc.exe" -Argumentos @("sdset", "wuauserv", $SdWuauserv) -IgnorarErro | Out-Null
+
+    $Dlls = @(
+        "atl.dll", "urlmon.dll", "mshtml.dll", "shdocvw.dll", "browseui.dll",
+        "jscript.dll", "vbscript.dll", "scrrun.dll", "msxml.dll", "msxml3.dll",
+        "msxml6.dll", "actxprxy.dll", "softpub.dll", "wintrust.dll", "dssenh.dll",
+        "rsaenh.dll", "gpkcsp.dll", "sccbase.dll", "slbcsp.dll", "cryptdlg.dll",
+        "oleaut32.dll", "ole32.dll", "shell32.dll", "initpki.dll", "wuapi.dll",
+        "wuaueng.dll", "wuaueng1.dll", "wucltui.dll", "wups.dll", "wups2.dll",
+        "wuweb.dll", "qmgr.dll", "qmgrprxy.dll", "wucltux.dll", "muweb.dll", "wuwebv.dll"
+    )
+
+    $System32 = Join-Path $env:windir "System32"
+
+    foreach ($Dll in $Dlls) {
+        $DllPath = Join-Path $System32 $Dll
+
+        if (Test-Path $DllPath) {
+            ExecutarComandoManutencao -Nome "Registrar $Dll" -Arquivo "regsvr32.exe" -Argumentos @("/s", $DllPath) -IgnorarErro | Out-Null
+        }
+        else {
+            LogMsg "AVISO: DLL nao encontrada para registrar: $DllPath"
+        }
+    }
+
+    ExecutarComandoManutencao -Nome "Reset Winsock" -Arquivo "netsh.exe" -Argumentos @("winsock", "reset") -IgnorarErro | Out-Null
+    ExecutarComandoManutencao -Nome "Reset proxy WinHTTP" -Arquivo "netsh.exe" -Argumentos @("winhttp", "reset", "proxy") -IgnorarErro | Out-Null
+
+    foreach ($Servico in @("bits", "wuauserv", "appidsvc", "cryptsvc")) {
+        IniciarServicoManutencao -Nome $Servico
+    }
+
+    LogMsg "Windows Update fix finalizado."
+}
+
+function AumentarCacheIcone {
+    $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer"
+
+    if (!(Test-Path $RegPath)) {
+        New-Item -Path $RegPath -Force | Out-Null
+    }
+
+    New-ItemProperty -Path $RegPath -Name "Max Cached Icons" -Value "4096" -PropertyType String -Force | Out-Null
+    LogMsg "Max Cached Icons configurado como 4096."
+
+    Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
+    $ArquivosCache = @(
+        (Join-Path $env:LOCALAPPDATA "IconCache.db")
+    )
+
+    $ExplorerCache = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\Explorer"
+    if (Test-Path $ExplorerCache) {
+        $ArquivosCache += @(Get-ChildItem -LiteralPath $ExplorerCache -Filter "iconcache*" -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+    }
+
+    foreach ($Arquivo in $ArquivosCache) {
+        Remove-Item -LiteralPath $Arquivo -Force -ErrorAction SilentlyContinue
+    }
+
+    Start-Process explorer.exe
+    LogMsg "Cache de icones limpo e Explorer reiniciado."
+}
+
+function DesativarFirewallWindows {
+    ExecutarComandoManutencao -Nome "Desativar firewall em todos os perfis" -Arquivo "netsh.exe" -Argumentos @("advfirewall", "set", "allprofiles", "state", "off")
+    LogMsg "Firewall do Windows desativado em todos os perfis."
+}
+
+function ResetarImpressora {
+    PararServicoManutencao -Nome "spooler"
+
+    $Fila = Join-Path $env:SystemRoot "System32\Spool\Printers"
+
+    if (Test-Path $Fila) {
+        LogMsg "Limpando fila de impressao: $Fila"
+        Get-ChildItem -LiteralPath $Fila -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+    }
+    else {
+        LogMsg "Pasta da fila de impressao nao encontrada: $Fila"
+    }
+
+    IniciarServicoManutencao -Nome "spooler"
+    LogMsg "Spooler de impressao resetado."
+}
+
+function InstalarGpeditMsc {
+    $PackagesPath = Join-Path $env:SystemRoot "servicing\Packages"
+
+    if (!(Test-Path $PackagesPath)) {
+        throw "Pasta de pacotes do Windows nao encontrada: $PackagesPath"
+    }
+
+    $Pacotes = @(
+        Get-ChildItem -LiteralPath $PackagesPath -Filter "Microsoft-Windows-GroupPolicy-ClientExtensions-Package~3*.mum" -File -ErrorAction SilentlyContinue
+        Get-ChildItem -LiteralPath $PackagesPath -Filter "Microsoft-Windows-GroupPolicy-ClientTools-Package~3*.mum" -File -ErrorAction SilentlyContinue
+    )
+
+    if ($Pacotes.Count -eq 0) {
+        throw "Nenhum pacote do GPEDIT.MSC encontrado em $PackagesPath"
+    }
+
+    foreach ($Pacote in $Pacotes) {
+        ExecutarComandoManutencao -Nome "Instalar pacote GPEDIT $($Pacote.Name)" -Arquivo "Dism.exe" -Argumentos @("/online", "/norestart", "/add-package:$($Pacote.FullName)") -IgnorarErro | Out-Null
+    }
+
+    LogMsg "Instalacao do GPEDIT.MSC processada."
+}
+
 function ObterMapeamentosTekSoftware {
     @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=4" -ErrorAction SilentlyContinue | Where-Object {
         $_.ProviderName -match "^\\\\[^\\]+\\TekSoftware\\?$"
@@ -776,6 +1033,46 @@ foreach ($Acao in $ListaAcoes) {
         "firebird" {
             ExecutarPasso "Reinstalar Firebird" {
                 ReinstalarFirebird
+            }
+        }
+        "net35" {
+            ExecutarPasso "Instalar .NET Framework 3.5" {
+                InstalarNet35
+            }
+        }
+        "portacom" {
+            ExecutarPasso "Resetar portas COM" {
+                ResetarPortasCom
+            }
+        }
+        "removersenhacompartilhamento" {
+            ExecutarPasso "Remover senha de compartilhamento" {
+                RemoverSenhaCompartilhamento
+            }
+        }
+        "windowsupdatefix" {
+            ExecutarPasso "Corrigir Windows Update" {
+                CorrigirWindowsUpdate
+            }
+        }
+        "cacheicone" {
+            ExecutarPasso "Aumentar cache de icones" {
+                AumentarCacheIcone
+            }
+        }
+        "firewalloff" {
+            ExecutarPasso "Desativar Firewall do Windows" {
+                DesativarFirewallWindows
+            }
+        }
+        "resetimpressora" {
+            ExecutarPasso "Resetar impressora" {
+                ResetarImpressora
+            }
+        }
+        "gpedit" {
+            ExecutarPasso "Instalar GPEDIT.MSC" {
+                InstalarGpeditMsc
             }
         }
         default {
