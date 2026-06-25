@@ -9,10 +9,12 @@ $Base = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $Log = Join-Path $Base "suporte_teksoftware_log.txt"
 $FirebirdExe = Join-Path $Base "Firebird-2.5.9.exe"
+$Net48 = Join-Path $Base "dotnet48.exe"
 $CertificadoZip = Join-Path $Base "CADEIA_CERTIFICADO.zip"
 $CertificadoZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/CADEIA_CERTIFICADO.zip"
 $GbasZip = Join-Path $Base "GBAS_FP_NOVO.zip"
 $GbasZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/GBAS_FP_NOVO.zip"
+$Net48Url = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/dotnet48.exe"
 $FarmaciaPopularPortalUrl = "https://farmaciapopular-portal.saude.gov.br/farmaciapopular-portal/login.jsf"
 
 $RaizTekSoftware = "C:\TekSoftware"
@@ -731,6 +733,49 @@ function InstalarNet35 {
     }
 
     LogMsg ".NET Framework 3.5 processado."
+}
+
+function Test-DotNet48 {
+    $Release = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" -Name Release -ErrorAction SilentlyContinue).Release
+
+    if ($null -eq $Release) {
+        return $false
+    }
+
+    return ([int]$Release -ge 528040)
+}
+
+function BaixarNet48SeNecessario {
+    if (Test-Path $Net48) {
+        return
+    }
+
+    LogMsg "Arquivo dotnet48.exe nao encontrado na pasta temporaria. Baixando do release..."
+    Invoke-WebRequest -UseBasicParsing -Uri $Net48Url -OutFile $Net48
+    LogMsg "dotnet48.exe baixado."
+}
+
+function InstalarNet48 {
+    if (Test-DotNet48) {
+        LogMsg ".NET Framework 4.8 ja esta instalado."
+        return
+    }
+
+    BaixarNet48SeNecessario
+
+    $Instalado = InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
+
+    if (Test-DotNet48) {
+        LogMsg ".NET Framework 4.8 instalado e detectado."
+        return
+    }
+
+    if ($Instalado) {
+        LogMsg "AVISO: Instalador do .NET Framework 4.8 finalizou, mas pode ser necessario reiniciar para detectar."
+        return
+    }
+
+    throw "Falha ao instalar .NET Framework 4.8."
 }
 
 function ResetarPortasCom {
@@ -2217,6 +2262,11 @@ foreach ($Acao in $ListaAcoes) {
         "net35" {
             ExecutarPassoAdmin "Instalar .NET Framework 3.5" {
                 InstalarNet35
+            }
+        }
+        "net48" {
+            ExecutarPassoAdmin "Instalar .NET Framework 4.8" {
+                InstalarNet48
             }
         }
         "portacom" {
