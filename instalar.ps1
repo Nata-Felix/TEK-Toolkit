@@ -70,7 +70,10 @@ function InstalarExe {
 }
 
 function ObterProcessosTek {
-    $ProcessosProtegidos = @("TekFarmaInstaller")
+    $ProcessosProtegidos = @(
+        "TekFarmaInstaller",
+        "TekSoftwareSuporte"
+    )
 
     @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -like "Tek*" -and
