@@ -88,6 +88,34 @@ function ObterContaPorSid {
     }
 }
 
+function ObterContasCompartilhamentoPorSid {
+    param([string]$Sid)
+
+    $Contas = @()
+    $Traduzida = ObterContaPorSid $Sid
+
+    if (![string]::IsNullOrWhiteSpace($Traduzida)) {
+        $Contas += $Traduzida
+    }
+
+    switch ($Sid) {
+        "S-1-1-0" {
+            $Contas += @("Todos", "Everyone")
+        }
+        "S-1-5-2" {
+            $Contas += @("Rede", "Network", "NT AUTHORITY\NETWORK")
+        }
+        "S-1-5-32-546" {
+            $Contas += @("Convidados", "Guests", "BUILTIN\Guests")
+        }
+        default {
+            $Contas += $Sid
+        }
+    }
+
+    @($Contas | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+}
+
 function NormalizarCaminho {
     param([string]$Caminho)
 
@@ -296,35 +324,40 @@ function SuspenderCompartilhamentosTekSoftware {
 function RestaurarPermissaoCompartilhamento {
     param(
         [string]$NomeCompartilhamento,
-        [string]$Conta,
+        [string[]]$Conta,
         [string]$TipoControle,
         [string]$Direito
     )
 
-    try {
-        if ($TipoControle -eq "Deny") {
-            Block-SmbShareAccess -Name $NomeCompartilhamento -AccountName $Conta -Force -ErrorAction Stop | Out-Null
+    $UltimoErro = ""
+
+    foreach ($ContaAtual in @($Conta | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+        try {
+            if ($TipoControle -eq "Deny") {
+                Block-SmbShareAccess -Name $NomeCompartilhamento -AccountName $ContaAtual -Force -ErrorAction Stop | Out-Null
+            }
+            else {
+                Grant-SmbShareAccess -Name $NomeCompartilhamento -AccountName $ContaAtual -AccessRight $Direito -Force -ErrorAction Stop | Out-Null
+            }
+
+            LogMsg "Permissao $Direito aplicada para $ContaAtual no compartilhamento $NomeCompartilhamento."
+            return $true
         }
-        else {
-            Grant-SmbShareAccess -Name $NomeCompartilhamento -AccountName $Conta -AccessRight $Direito -Force -ErrorAction Stop | Out-Null
+        catch {
+            $UltimoErro = $_.Exception.Message
         }
     }
-    catch {
-        LogMsg "AVISO: Nao foi possivel aplicar permissao $Direito para $Conta em $NomeCompartilhamento."
-    }
+
+    LogMsg "AVISO: Nao foi possivel aplicar permissao $Direito para $($Conta -join ', ') em $NomeCompartilhamento. Motivo: $UltimoErro"
+    return $false
 }
 
 function GarantirPermissoesPadraoCompartilhamento {
     param([string]$NomeCompartilhamento)
 
-    $ContasPadrao = @(
-        ObterContaPorSid "S-1-1-0",
-        ObterContaPorSid "S-1-5-2",
-        ObterContaPorSid "S-1-5-32-546"
-    )
-
-    foreach ($Conta in $ContasPadrao) {
-        RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Conta -TipoControle "Allow" -Direito "Full"
+    foreach ($Sid in @("S-1-1-0", "S-1-5-2", "S-1-5-32-546")) {
+        $Contas = @(ObterContasCompartilhamentoPorSid $Sid)
+        RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Contas -TipoControle "Allow" -Direito "Full" | Out-Null
     }
 }
 
@@ -409,6 +442,120 @@ function ExtrairZip {
     return $true
 }
 
+function ExtrairArquivoVersaoZipDotNet {
+    param(
+        [string]$Pacote,
+        [string]$Destino
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+
+    $DestinoBase = [System.IO.Path]::GetFullPath($Destino).TrimEnd("\") + "\"
+    $ArquivoZip = [System.IO.Compression.ZipFile]::OpenRead($Pacote)
+
+    try {
+        foreach ($Entrada in $ArquivoZip.Entries) {
+            $Relativo = $Entrada.FullName -replace "/", "\"
+
+            if ([string]::IsNullOrWhiteSpace($Relativo)) {
+                continue
+            }
+
+            $DestinoEntrada = [System.IO.Path]::GetFullPath((Join-Path $Destino $Relativo))
+
+            if (!$DestinoEntrada.StartsWith($DestinoBase, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Entrada fora do destino permitida: $($Entrada.FullName)"
+            }
+
+            if ([string]::IsNullOrWhiteSpace($Entrada.Name)) {
+                New-Item -ItemType Directory -Path $DestinoEntrada -Force | Out-Null
+                continue
+            }
+
+            $PastaDestino = Split-Path -Parent $DestinoEntrada
+            if (!(Test-Path $PastaDestino)) {
+                New-Item -ItemType Directory -Path $PastaDestino -Force | Out-Null
+            }
+
+            if (Test-Path $DestinoEntrada) {
+                Remove-Item -LiteralPath $DestinoEntrada -Force -ErrorAction Stop
+            }
+
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($Entrada, $DestinoEntrada)
+        }
+    }
+    finally {
+        $ArquivoZip.Dispose()
+    }
+}
+
+function ExtrairArquivoVersaoShell {
+    param(
+        [string]$Pacote,
+        [string]$Destino
+    )
+
+    $Shell = New-Object -ComObject Shell.Application
+    $OrigemShell = $Shell.NameSpace($Pacote)
+    $DestinoShell = $Shell.NameSpace($Destino)
+
+    if ($null -eq $OrigemShell -or $null -eq $DestinoShell) {
+        throw "Shell.Application nao conseguiu abrir o pacote ou destino."
+    }
+
+    $DestinoShell.CopyHere($OrigemShell.Items(), 20)
+    Start-Sleep -Seconds 5
+}
+
+function ExtrairArquivoVersaoCompat {
+    param(
+        [string]$Pacote,
+        [string]$Destino
+    )
+
+    if (!(Test-Path $Destino)) {
+        New-Item -ItemType Directory -Path $Destino -Force | Out-Null
+    }
+
+    $Tar = Get-Command "tar.exe" -ErrorAction SilentlyContinue
+
+    if ($Tar) {
+        LogMsg "Extraindo versao TekFarma com tar para $Destino"
+        $ProcTar = Start-Process -FilePath $Tar.Source -ArgumentList @("-xf", $Pacote, "-C", $Destino) -Wait -PassThru
+        LogMsg "Extracao com tar finalizada. ExitCode: $($ProcTar.ExitCode)"
+
+        if ($ProcTar.ExitCode -eq 0) {
+            return 0
+        }
+
+        LogMsg "AVISO: tar.exe retornou codigo $($ProcTar.ExitCode). Tentando extracao alternativa."
+    }
+    else {
+        LogMsg "AVISO: tar.exe nao encontrado neste Windows. Tentando extracao alternativa via .NET."
+    }
+
+    try {
+        LogMsg "Extraindo versao TekFarma via .NET ZipFile para $Destino"
+        ExtrairArquivoVersaoZipDotNet -Pacote $Pacote -Destino $Destino
+        LogMsg "Extracao via .NET ZipFile finalizada com sucesso."
+        return 0
+    }
+    catch {
+        LogMsg "AVISO: Extracao via .NET ZipFile falhou: $($_.Exception.Message)"
+    }
+
+    try {
+        LogMsg "Tentando extracao via Shell.Application."
+        ExtrairArquivoVersaoShell -Pacote $Pacote -Destino $Destino
+        LogMsg "Extracao via Shell.Application solicitada."
+        return 0
+    }
+    catch {
+        LogMsg "ERRO: Extracao via Shell.Application falhou: $($_.Exception.Message)"
+        return 1
+    }
+}
+
 function AtualizarVersaoTekFarmaServidor {
     if ($TipoVersao -eq "normal") {
         $Pacote = Join-Path $Base "TekFarma50.exe"
@@ -432,12 +579,10 @@ function AtualizarVersaoTekFarmaServidor {
 
     Unblock-File $Pacote -ErrorAction SilentlyContinue
 
-    LogMsg "Extraindo versao TekFarma com tar para $DestinoSistema"
+    $CodigoExtracao = ExtrairArquivoVersaoCompat -Pacote $Pacote -Destino $DestinoSistema
+    LogMsg "Extracao da versao finalizada. ExitCode: $CodigoExtracao"
 
-    $ProcTar = Start-Process -FilePath "tar.exe" -ArgumentList @("-xf", $Pacote, "-C", $DestinoSistema) -Wait -PassThru
-    LogMsg "Extracao da versao finalizada. ExitCode: $($ProcTar.ExitCode)"
-
-    return ($ProcTar.ExitCode -eq 0)
+    return ($CodigoExtracao -eq 0)
 }
 
 function ObterInstalacoesFirebird {
