@@ -43,7 +43,6 @@ namespace TekSoftwareSuporte
         private readonly Color textMuted = Color.FromArgb(110, 119, 135);
 
         private readonly List<ActionOption> actionOptions = new List<ActionOption>();
-        private readonly TextBox hostTextBox = new TextBox();
         private readonly ProgressBar progressBar = new ProgressBar();
         private readonly Label progressLabel = new Label();
         private readonly Label currentStepLabel = new Label();
@@ -53,12 +52,16 @@ namespace TekSoftwareSuporte
         private readonly Button closeButton = new Button();
         private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
-        private readonly Label printerSelectionLabel = new Label();
-        private readonly Button printerSelectButton = new Button();
-        private readonly Label serverMigrationSelectionLabel = new Label();
-        private readonly Button serverMigrationSelectButton = new Button();
         private readonly PictureBox logoBox = new PictureBox();
         private readonly ToolTip toolTip = new ToolTip();
+        private readonly Panel rootPanel = new Panel();
+        private readonly Panel headerPanel = new Panel();
+        private readonly Label selectLabel = new Label();
+        private readonly FlowLayoutPanel actionsPanel = new FlowLayoutPanel();
+        private readonly Panel progressCard = new Panel();
+        private readonly Panel footerPanel = new Panel();
+        private readonly List<CollapsibleSection> actionSections = new List<CollapsibleSection>();
+        private CollapsibleSection activeActionSection;
 
         private BackgroundWorker worker;
         private Process runningProcess;
@@ -69,6 +72,8 @@ namespace TekSoftwareSuporte
         private int totalUnits;
         private PrinterDriver selectedPrinter;
         private ActionOption printerActionOption;
+        private string selectedMappingHost = "SERVIDOR";
+        private ActionOption mappingActionOption;
         private ServerMigrationPlan selectedServerMigration;
         private ActionOption serverMigrationActionOption;
         private SefazTimeZoneOption selectedSefazTimeZone;
@@ -79,15 +84,15 @@ namespace TekSoftwareSuporte
         public SupportForm()
         {
             Text = "Suporte TekSoftware";
-            Width = 1180;
-            Height = 840;
-            MinimumSize = new Size(1180, 840);
+            ClientSize = new Size(1040, 700);
+            MinimumSize = new Size(640, 480);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.White;
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
             FormClosing += SupportForm_FormClosing;
+            Resize += delegate { ApplyResponsiveLayout(); };
 
             Icon icon = LoadEmbeddedIcon("TekFarmaIcon");
             if (icon != null)
@@ -96,6 +101,7 @@ namespace TekSoftwareSuporte
             }
 
             BuildLayout();
+            ApplyResponsiveLayout();
             toolTip.AutoPopDelay = 12000;
             toolTip.InitialDelay = 350;
             toolTip.ReshowDelay = 100;
@@ -103,25 +109,24 @@ namespace TekSoftwareSuporte
 
         private void BuildLayout()
         {
-            Panel root = new Panel();
-            root.Dock = DockStyle.Fill;
-            root.BackColor = Color.White;
-            Controls.Add(root);
+            rootPanel.Dock = DockStyle.Fill;
+            rootPanel.BackColor = Color.White;
+            rootPanel.AutoScroll = true;
+            Controls.Add(rootPanel);
 
-            BuildHeader(root);
-            BuildContent(root);
-            BuildFooter(root);
+            BuildHeader(rootPanel);
+            BuildContent(rootPanel);
+            BuildFooter(rootPanel);
         }
 
         private void BuildHeader(Control root)
         {
-            Panel header = new Panel();
-            header.Left = 30;
-            header.Top = 10;
-            header.Width = 1120;
-            header.Height = 130;
-            header.BackColor = Color.White;
-            root.Controls.Add(header);
+            headerPanel.Left = 24;
+            headerPanel.Top = 8;
+            headerPanel.Width = 992;
+            headerPanel.Height = 112;
+            headerPanel.BackColor = Color.White;
+            root.Controls.Add(headerPanel);
 
             Image logo = LoadEmbeddedImage("TekFarmaLogo");
             if (logo != null)
@@ -131,68 +136,73 @@ namespace TekSoftwareSuporte
             }
 
             logoBox.Left = 20;
-            logoBox.Top = 10;
-            logoBox.Width = 295;
-            logoBox.Height = 100;
-            header.Controls.Add(logoBox);
+            logoBox.Top = 8;
+            logoBox.Width = 220;
+            logoBox.Height = 88;
+            headerPanel.Controls.Add(logoBox);
 
             Panel divider = new Panel();
-            divider.Left = 345;
-            divider.Top = 20;
+            divider.Left = 270;
+            divider.Top = 14;
             divider.Width = 1;
-            divider.Height = 84;
+            divider.Height = 76;
             divider.BackColor = border;
-            header.Controls.Add(divider);
+            headerPanel.Controls.Add(divider);
 
             Label title = new Label();
             title.Text = "Suporte TekSoftware";
-            title.Left = 380;
-            title.Top = 26;
-            title.Width = 520;
-            title.Height = 42;
-            title.Font = new Font("Segoe UI", 23F, FontStyle.Bold, GraphicsUnit.Point);
+            title.Left = 300;
+            title.Top = 20;
+            title.Width = 650;
+            title.Height = 38;
+            title.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            title.Font = new Font("Segoe UI", 19F, FontStyle.Bold, GraphicsUnit.Point);
             title.ForeColor = darkBlue;
-            header.Controls.Add(title);
+            headerPanel.Controls.Add(title);
 
             Label subtitle = new Label();
             subtitle.Text = "Ferramentas de suporte e manutencao";
-            subtitle.Left = 384;
-            subtitle.Top = 72;
-            subtitle.Width = 520;
+            subtitle.Left = 304;
+            subtitle.Top = 62;
+            subtitle.Width = 646;
             subtitle.Height = 28;
-            subtitle.Font = new Font("Segoe UI", 14F, FontStyle.Regular, GraphicsUnit.Point);
+            subtitle.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            subtitle.Font = new Font("Segoe UI", 12F, FontStyle.Regular, GraphicsUnit.Point);
             subtitle.ForeColor = textMuted;
-            header.Controls.Add(subtitle);
+            headerPanel.Controls.Add(subtitle);
 
             Panel horizontal = new Panel();
             horizontal.Left = 0;
-            horizontal.Top = 122;
-            horizontal.Width = 1120;
+            horizontal.Top = 104;
+            horizontal.Width = 992;
             horizontal.Height = 1;
+            horizontal.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
             horizontal.BackColor = border;
-            header.Controls.Add(horizontal);
+            headerPanel.Controls.Add(horizontal);
         }
 
         private void BuildContent(Control root)
         {
-            Label selectLabel = new Label();
             selectLabel.Text = "Selecione as acoes de suporte";
-            selectLabel.Left = 44;
-            selectLabel.Top = 158;
-            selectLabel.Width = 500;
+            selectLabel.Left = 26;
+            selectLabel.Top = 130;
+            selectLabel.Width = 440;
             selectLabel.Height = 24;
             selectLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
             selectLabel.ForeColor = blue;
             root.Controls.Add(selectLabel);
 
-            Panel actionsPanel = new Panel();
-            actionsPanel.Left = 42;
-            actionsPanel.Top = 186;
-            actionsPanel.Width = 520;
-            actionsPanel.Height = 530;
+            actionsPanel.Left = 24;
+            actionsPanel.Top = 158;
+            actionsPanel.Width = 440;
+            actionsPanel.Height = 460;
             actionsPanel.AutoScroll = true;
+            actionsPanel.FlowDirection = FlowDirection.TopDown;
+            actionsPanel.WrapContents = false;
+            actionsPanel.Padding = new Padding(4);
             actionsPanel.BackColor = Color.White;
             actionsPanel.BorderStyle = BorderStyle.FixedSingle;
+            actionsPanel.Resize += delegate { ResizeActionSections(); };
             actionsPanel.Paint += delegate(object sender, PaintEventArgs e)
             {
                 using (Pen p = new Pen(border))
@@ -206,7 +216,14 @@ namespace TekSoftwareSuporte
             AddSection(actionsPanel, "Rede e acesso", SectionIconKind.Network, ref y);
             AddAction(actionsPanel, "rede", "Configurar rede avancada", "Ativa servicos, firewall de rede, bindings e parametros de compartilhamento.", ref y);
             AddAction(actionsPanel, "credencial", "Criar credencial SERVIDOR", "Cria credencial SERVIDOR com usuario convidado e senha vazia.", ref y);
-            AddAction(actionsPanel, "mapear", "Mapear TekSoftware", "Remove mapeamentos TekSoftware antigos, usa host informado e escolhe Z:, Y:, X:...", ref y);
+            mappingActionOption = AddAction(actionsPanel, "mapear", "Mapear TekSoftware", "Remove mapeamentos TekSoftware antigos, usa host informado e escolhe Z:, Y:, X:...", ref y);
+            mappingActionOption.CheckBox.CheckedChanged += delegate
+            {
+                if (mappingActionOption.CheckBox.Checked && !ShowMappingHostDialog())
+                {
+                    mappingActionOption.CheckBox.Checked = false;
+                }
+            };
 
             AddSection(actionsPanel, "Certificados", SectionIconKind.Certificate, ref y);
             AddAction(actionsPanel, "certificados", "Instalar cadeia de certificado", "Baixa o zip do release e importa .cer, .sst e .p7b em Autoridades Raiz Confiaveis.", ref y);
@@ -234,8 +251,7 @@ namespace TekSoftwareSuporte
             serverMigrationActionOption = AddAction(actionsPanel, "trocaservidor", "Troca de servidor", "Assistente para preparar novo servidor ou servidor antigo com fluxo humano.", ref y);
             serverMigrationActionOption.CheckBox.CheckedChanged += delegate
             {
-                UpdateServerMigrationSelectionState();
-                if (serverMigrationActionOption.CheckBox.Checked && selectedServerMigration == null)
+                if (serverMigrationActionOption.CheckBox.Checked)
                 {
                     if (!ShowServerMigrationDialog())
                     {
@@ -248,8 +264,7 @@ namespace TekSoftwareSuporte
             printerActionOption = AddAction(actionsPanel, "impressora", "Instalar impressora", "Seleciona marca/modelo, baixa somente o ZIP necessario e abre o instalador.", ref y);
             printerActionOption.CheckBox.CheckedChanged += delegate
             {
-                UpdatePrinterSelectionState();
-                if (printerActionOption.CheckBox.Checked && selectedPrinter == null)
+                if (printerActionOption.CheckBox.Checked)
                 {
                     if (!ShowPrinterSelectionDialog())
                     {
@@ -270,55 +285,54 @@ namespace TekSoftwareSuporte
             AddAction(actionsPanel, "resetimpressora", "Resetar impressora", "Para o spooler, limpa a fila de impressao e inicia o spooler novamente.", ref y);
             AddAction(actionsPanel, "gpedit", "Instalar GPEDIT.MSC", "Instala os pacotes GroupPolicy ClientTools e ClientExtensions via DISM.", ref y);
 
-            BuildHostPanel(root);
-            BuildPrinterPanel(root);
-            BuildServerMigrationPanel(root);
             BuildProgressPanel(root);
         }
 
         private void AddSection(Panel parent, string text, SectionIconKind iconKind, ref int y)
         {
-            SectionIcon icon = new SectionIcon(iconKind);
-            icon.Left = 12;
-            icon.Top = y + 1;
-            icon.Width = 18;
-            icon.Height = 18;
-            icon.ForeColor = blue;
-            parent.Controls.Add(icon);
-
-            Label label = new Label();
-            label.Text = text;
-            label.Left = 38;
-            label.Top = y;
-            label.Width = 430;
-            label.Height = 22;
-            label.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
-            label.ForeColor = blue;
-            parent.Controls.Add(label);
-            y += 26;
+            CollapsibleSection section = new CollapsibleSection(text, iconKind, blue, border);
+            section.Width = Math.Max(280, actionsPanel.ClientSize.Width - 16);
+            section.ExpandedChanged += delegate { actionsPanel.PerformLayout(); };
+            actionsPanel.Controls.Add(section);
+            actionSections.Add(section);
+            activeActionSection = section;
+            y = 0;
         }
 
         private ActionOption AddAction(Panel parent, string id, string title, string tooltip, ref int y)
         {
             CheckBox checkBox = new CheckBox();
             checkBox.Text = title;
-            checkBox.Left = 18;
-            checkBox.Top = y;
-            checkBox.Width = 460;
+            checkBox.Left = 12;
+            checkBox.Top = 0;
+            checkBox.Width = 380;
             checkBox.Height = 28;
             checkBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
             checkBox.ForeColor = Color.FromArgb(28, 36, 48);
-            parent.Controls.Add(checkBox);
+            if (activeActionSection == null)
+            {
+                throw new InvalidOperationException("Uma secao deve ser criada antes das acoes.");
+            }
+            activeActionSection.AddOption(checkBox);
             toolTip.SetToolTip(checkBox, tooltip);
             ActionOption option = new ActionOption(id, title, checkBox);
             actionOptions.Add(option);
-            y += 34;
+            y = 0;
             return option;
         }
 
-        private Panel CreateCard(Control root, int left, int top, int width, int height)
+        private void ResizeActionSections()
         {
-            Panel card = new Panel();
+            int width = Math.Max(280, actionsPanel.ClientSize.Width - actionsPanel.Padding.Horizontal - 12);
+
+            for (int i = 0; i < actionSections.Count; i++)
+            {
+                actionSections[i].Width = width;
+            }
+        }
+
+        private Panel ConfigureCard(Panel card, Control root, int left, int top, int width, int height)
+        {
             card.Left = left;
             card.Top = top;
             card.Width = width;
@@ -329,128 +343,9 @@ namespace TekSoftwareSuporte
             return card;
         }
 
-        private void BuildHostPanel(Control root)
-        {
-            Panel card = CreateCard(root, 586, 552, 554, 82);
-
-            Label hostLabel = new Label();
-            hostLabel.Text = "Host para mapeamento";
-            hostLabel.Left = 12;
-            hostLabel.Top = 8;
-            hostLabel.Width = 190;
-            hostLabel.Height = 22;
-            hostLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
-            hostLabel.ForeColor = blue;
-            card.Controls.Add(hostLabel);
-
-            hostTextBox.Left = 12;
-            hostTextBox.Top = 36;
-            hostTextBox.Width = 180;
-            hostTextBox.Height = 26;
-            hostTextBox.Text = "SERVIDOR";
-            hostTextBox.CharacterCasing = CharacterCasing.Upper;
-            card.Controls.Add(hostTextBox);
-
-            AddHostButton(card, "SERVIDOR", 208);
-            AddHostButton(card, "SERVER", 288);
-            AddHostButton(card, "SERVERTEK", 360);
-        }
-
-        private void BuildPrinterPanel(Control root)
-        {
-            Panel card = CreateCard(root, 586, 646, 268, 70);
-
-            Label printerLabel = new Label();
-            printerLabel.Text = "Driver de impressora";
-            printerLabel.Left = 12;
-            printerLabel.Top = 8;
-            printerLabel.Width = 190;
-            printerLabel.Height = 22;
-            printerLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
-            printerLabel.ForeColor = blue;
-            card.Controls.Add(printerLabel);
-
-            printerSelectionLabel.Text = "Nenhuma impressora selecionada";
-            printerSelectionLabel.Left = 12;
-            printerSelectionLabel.Top = 34;
-            printerSelectionLabel.Width = 154;
-            printerSelectionLabel.Height = 26;
-            printerSelectionLabel.AutoEllipsis = true;
-            printerSelectionLabel.ForeColor = Color.FromArgb(38, 48, 64);
-            printerSelectionLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point);
-            card.Controls.Add(printerSelectionLabel);
-            toolTip.SetToolTip(printerSelectionLabel, printerSelectionLabel.Text);
-
-            printerSelectButton.Text = "Selecionar";
-            printerSelectButton.Left = 174;
-            printerSelectButton.Top = 30;
-            printerSelectButton.Width = 82;
-            printerSelectButton.Height = 30;
-            printerSelectButton.FlatStyle = FlatStyle.Flat;
-            printerSelectButton.FlatAppearance.BorderColor = border;
-            printerSelectButton.BackColor = Color.White;
-            printerSelectButton.Enabled = false;
-            printerSelectButton.Click += delegate { ShowPrinterSelectionDialog(); };
-            card.Controls.Add(printerSelectButton);
-        }
-
-        private void BuildServerMigrationPanel(Control root)
-        {
-            Panel card = CreateCard(root, 872, 646, 268, 70);
-
-            Label label = new Label();
-            label.Text = "Troca de servidor";
-            label.Left = 12;
-            label.Top = 8;
-            label.Width = 190;
-            label.Height = 22;
-            label.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
-            label.ForeColor = blue;
-            card.Controls.Add(label);
-
-            serverMigrationSelectionLabel.Text = "Nenhuma troca configurada";
-            serverMigrationSelectionLabel.Left = 12;
-            serverMigrationSelectionLabel.Top = 34;
-            serverMigrationSelectionLabel.Width = 154;
-            serverMigrationSelectionLabel.Height = 26;
-            serverMigrationSelectionLabel.AutoEllipsis = true;
-            serverMigrationSelectionLabel.ForeColor = Color.FromArgb(38, 48, 64);
-            serverMigrationSelectionLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point);
-            card.Controls.Add(serverMigrationSelectionLabel);
-            toolTip.SetToolTip(serverMigrationSelectionLabel, serverMigrationSelectionLabel.Text);
-
-            serverMigrationSelectButton.Text = "Configurar";
-            serverMigrationSelectButton.Left = 174;
-            serverMigrationSelectButton.Top = 30;
-            serverMigrationSelectButton.Width = 82;
-            serverMigrationSelectButton.Height = 30;
-            serverMigrationSelectButton.FlatStyle = FlatStyle.Flat;
-            serverMigrationSelectButton.FlatAppearance.BorderColor = border;
-            serverMigrationSelectButton.BackColor = Color.White;
-            serverMigrationSelectButton.Enabled = false;
-            serverMigrationSelectButton.Click += delegate { ShowServerMigrationDialog(); };
-            card.Controls.Add(serverMigrationSelectButton);
-        }
-
-        private void AddHostButton(Control root, string text, int left)
-        {
-            Button button = new Button();
-            button.Text = text;
-            button.Left = left;
-            button.Top = 31;
-            button.Width = text.Length > 6 ? 64 : 54;
-            button.Height = 28;
-            button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderColor = border;
-            button.BackColor = Color.White;
-            button.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
-            button.Click += delegate { hostTextBox.Text = text; };
-            root.Controls.Add(button);
-        }
-
         private void BuildProgressPanel(Control root)
         {
-            Panel card = CreateCard(root, 586, 186, 554, 350);
+            Panel card = ConfigureCard(progressCard, root, 482, 158, 534, 312);
 
             Label progressTitle = new Label();
             progressTitle.Text = "Progresso da execucao";
@@ -466,6 +361,7 @@ namespace TekSoftwareSuporte
             progressBar.Top = 52;
             progressBar.Width = 410;
             progressBar.Height = 28;
+            progressBar.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             progressBar.Minimum = 0;
             progressBar.Maximum = 100;
             card.Controls.Add(progressBar);
@@ -475,6 +371,7 @@ namespace TekSoftwareSuporte
             progressLabel.Top = 55;
             progressLabel.Width = 90;
             progressLabel.Height = 24;
+            progressLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             progressLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             progressLabel.ForeColor = blue;
             card.Controls.Add(progressLabel);
@@ -492,6 +389,7 @@ namespace TekSoftwareSuporte
             currentStepLabel.Top = 100;
             currentStepLabel.Width = 470;
             currentStepLabel.Height = 28;
+            currentStepLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             currentStepLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
             currentStepLabel.ForeColor = Color.FromArgb(35, 43, 55);
             card.Controls.Add(currentStepLabel);
@@ -501,6 +399,7 @@ namespace TekSoftwareSuporte
             separator.Top = 144;
             separator.Width = 518;
             separator.Height = 1;
+            separator.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             separator.BackColor = border;
             card.Controls.Add(separator);
 
@@ -517,7 +416,8 @@ namespace TekSoftwareSuporte
             logBox.Left = 18;
             logBox.Top = 182;
             logBox.Width = 518;
-            logBox.Height = 146;
+            logBox.Height = 108;
+            logBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             logBox.Multiline = true;
             logBox.ReadOnly = true;
             logBox.ScrollBars = ScrollBars.Vertical;
@@ -532,43 +432,51 @@ namespace TekSoftwareSuporte
         {
             Panel line = new Panel();
             line.Left = 0;
-            line.Top = 746;
-            line.Width = 1180;
+            line.Top = 0;
+            line.Width = 1040;
             line.Height = 1;
+            line.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             line.BackColor = border;
-            root.Controls.Add(line);
+            footerPanel.Controls.Add(line);
+
+            footerPanel.Left = 0;
+            footerPanel.Top = 638;
+            footerPanel.Width = 1040;
+            footerPanel.Height = 62;
+            footerPanel.BackColor = Color.White;
+            root.Controls.Add(footerPanel);
 
             statusLabel.Text = "Pronto para executar";
             statusLabel.Left = 62;
-            statusLabel.Top = 772;
+            statusLabel.Top = 22;
             statusLabel.Width = 300;
             statusLabel.Height = 24;
             statusLabel.ForeColor = Color.FromArgb(38, 48, 64);
             statusLabel.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
-            root.Controls.Add(statusLabel);
+            footerPanel.Controls.Add(statusLabel);
 
             InfoCircle info = new InfoCircle();
             info.Left = 40;
-            info.Top = 770;
+            info.Top = 20;
             info.Width = 18;
             info.Height = 18;
             info.ForeColor = blue;
-            root.Controls.Add(info);
+            footerPanel.Controls.Add(info);
 
-            closeWhenDoneCheckBox.Text = "Fechar automaticamente ao finalizar";
+            closeWhenDoneCheckBox.Text = "Fechar ao concluir";
             closeWhenDoneCheckBox.Left = 420;
-            closeWhenDoneCheckBox.Top = 766;
-            closeWhenDoneCheckBox.Width = 225;
+            closeWhenDoneCheckBox.Top = 18;
+            closeWhenDoneCheckBox.Width = 160;
             closeWhenDoneCheckBox.Height = 24;
             closeWhenDoneCheckBox.Checked = false;
             closeWhenDoneCheckBox.ForeColor = Color.FromArgb(38, 48, 64);
             closeWhenDoneCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
-            root.Controls.Add(closeWhenDoneCheckBox);
+            footerPanel.Controls.Add(closeWhenDoneCheckBox);
 
             executeButton.Text = "Executar";
             executeButton.Left = 720;
-            executeButton.Top = 754;
-            executeButton.Width = 150;
+            executeButton.Top = 10;
+            executeButton.Width = 130;
             executeButton.Height = 40;
             executeButton.FlatStyle = FlatStyle.Flat;
             executeButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
@@ -576,23 +484,23 @@ namespace TekSoftwareSuporte
             executeButton.ForeColor = Color.White;
             executeButton.Font = new Font("Segoe UI", 12F, FontStyle.Bold, GraphicsUnit.Point);
             executeButton.Click += delegate { StartSupport(); };
-            root.Controls.Add(executeButton);
+            footerPanel.Controls.Add(executeButton);
 
             cancelButton.Text = "Cancelar";
             cancelButton.Left = 888;
-            cancelButton.Top = 754;
-            cancelButton.Width = 124;
+            cancelButton.Top = 10;
+            cancelButton.Width = 108;
             cancelButton.Height = 40;
             cancelButton.FlatStyle = FlatStyle.Flat;
             cancelButton.FlatAppearance.BorderColor = border;
             cancelButton.BackColor = Color.White;
             cancelButton.Enabled = false;
             cancelButton.Click += delegate { CancelSupport(); };
-            root.Controls.Add(cancelButton);
+            footerPanel.Controls.Add(cancelButton);
 
             closeButton.Text = "Fechar";
             closeButton.Left = 1028;
-            closeButton.Top = 754;
+            closeButton.Top = 10;
             closeButton.Width = 88;
             closeButton.Height = 40;
             closeButton.FlatStyle = FlatStyle.Flat;
@@ -600,7 +508,103 @@ namespace TekSoftwareSuporte
             closeButton.BackColor = Color.FromArgb(244, 246, 249);
             closeButton.Enabled = true;
             closeButton.Click += delegate { Close(); };
-            root.Controls.Add(closeButton);
+            footerPanel.Controls.Add(closeButton);
+        }
+
+        private void ApplyResponsiveLayout()
+        {
+            if (rootPanel.ClientSize.Width <= 0 || rootPanel.ClientSize.Height <= 0)
+            {
+                return;
+            }
+
+            int viewportWidth = Math.Max(600, rootPanel.ClientSize.Width);
+            int viewportHeight = Math.Max(440, rootPanel.ClientSize.Height);
+            int margin = 24;
+            int gap = 16;
+            bool compact = viewportWidth < 900;
+
+            headerPanel.Left = margin;
+            headerPanel.Top = 8;
+            headerPanel.Width = viewportWidth - (margin * 2);
+            headerPanel.Height = 112;
+
+            selectLabel.Left = margin + 2;
+            selectLabel.Top = 130;
+            selectLabel.Width = viewportWidth - (margin * 2);
+
+            int contentTop = 158;
+            int footerTop;
+            int footerHeight;
+
+            if (!compact)
+            {
+                footerHeight = 62;
+                int contentHeight = Math.Max(430, viewportHeight - contentTop - footerHeight);
+                int availableWidth = viewportWidth - (margin * 2);
+                int leftWidth = Math.Max(350, (availableWidth - gap) * 44 / 100);
+                int rightLeft = margin + leftWidth + gap;
+                int rightWidth = availableWidth - leftWidth - gap;
+
+                actionsPanel.SetBounds(margin, contentTop, leftWidth, contentHeight - 10);
+                progressCard.SetBounds(rightLeft, contentTop, rightWidth, contentHeight - 10);
+
+                footerTop = contentTop + contentHeight;
+            }
+            else
+            {
+                footerHeight = 100;
+                int contentWidth = viewportWidth - (margin * 2);
+                int y = contentTop;
+
+                actionsPanel.SetBounds(margin, y, contentWidth, 300);
+                y += actionsPanel.Height + gap;
+                progressCard.SetBounds(margin, y, contentWidth, 300);
+                y += progressCard.Height + gap;
+                footerTop = y;
+            }
+
+            LayoutFooter(viewportWidth, footerTop, footerHeight, compact);
+            rootPanel.AutoScrollMinSize = new Size(0, footerTop + footerHeight);
+            ResizeActionSections();
+        }
+
+        private void LayoutFooter(int width, int top, int height, bool compact)
+        {
+            footerPanel.SetBounds(0, top, width, height);
+
+            if (compact)
+            {
+                statusLabel.SetBounds(62, 16, 240, 24);
+                closeWhenDoneCheckBox.SetBounds(Math.Max(320, width - 188), 14, 160, 24);
+
+                closeButton.SetBounds(width - 112, 50, 88, 40);
+                cancelButton.SetBounds(closeButton.Left - 120, 50, 108, 40);
+                executeButton.SetBounds(cancelButton.Left - 142, 50, 130, 40);
+            }
+            else
+            {
+                statusLabel.SetBounds(62, 22, 250, 24);
+                closeButton.SetBounds(width - 112, 10, 88, 40);
+                cancelButton.SetBounds(closeButton.Left - 120, 10, 108, 40);
+                executeButton.SetBounds(cancelButton.Left - 142, 10, 130, 40);
+                closeWhenDoneCheckBox.SetBounds(Math.Max(320, executeButton.Left - 180), 18, 160, 24);
+            }
+        }
+
+        private bool ShowMappingHostDialog()
+        {
+            using (MappingHostDialog dialog = new MappingHostDialog(selectedMappingHost))
+            {
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    selectedMappingHost = dialog.SelectedHost;
+                    toolTip.SetToolTip(mappingActionOption.CheckBox, "Host selecionado: " + selectedMappingHost);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool ShowPrinterSelectionDialog()
@@ -657,18 +661,12 @@ namespace TekSoftwareSuporte
 
         private void UpdatePrinterSelectionState()
         {
-            bool enabled = printerActionOption != null && printerActionOption.CheckBox.Checked;
-            printerSelectButton.Enabled = enabled;
-
-            string text = "Nenhuma impressora selecionada";
-
-            if (selectedPrinter != null)
+            if (printerActionOption != null && selectedPrinter != null)
             {
-                text = selectedPrinter.BrandName + " / " + selectedPrinter.ModelName;
+                toolTip.SetToolTip(
+                    printerActionOption.CheckBox,
+                    "Driver selecionado: " + selectedPrinter.BrandName + " / " + selectedPrinter.ModelName);
             }
-
-            printerSelectionLabel.Text = text;
-            toolTip.SetToolTip(printerSelectionLabel, text);
         }
 
         private bool ShowServerMigrationDialog()
@@ -720,18 +718,10 @@ namespace TekSoftwareSuporte
 
         private void UpdateServerMigrationSelectionState()
         {
-            bool enabled = serverMigrationActionOption != null && serverMigrationActionOption.CheckBox.Checked;
-            serverMigrationSelectButton.Enabled = enabled;
-
-            string text = "Nenhuma troca configurada";
-
-            if (selectedServerMigration != null)
+            if (serverMigrationActionOption != null && selectedServerMigration != null)
             {
-                text = selectedServerMigration.IsNovoServidor ? "Novo servidor" : "Servidor antigo";
+                toolTip.SetToolTip(serverMigrationActionOption.CheckBox, selectedServerMigration.GetSummary());
             }
-
-            serverMigrationSelectionLabel.Text = text;
-            toolTip.SetToolTip(serverMigrationSelectionLabel, selectedServerMigration == null ? text : selectedServerMigration.GetSummary());
         }
 
         private void StartSupport()
@@ -822,7 +812,7 @@ namespace TekSoftwareSuporte
         private WorkPlan BuildWorkPlan()
         {
             WorkPlan plan = new WorkPlan();
-            plan.HostServidor = hostTextBox.Text.Trim();
+            plan.HostServidor = selectedMappingHost == null ? "" : selectedMappingHost.Trim();
 
             if (String.IsNullOrWhiteSpace(plan.HostServidor))
             {
@@ -1249,9 +1239,6 @@ namespace TekSoftwareSuporte
                 actionOptions[i].CheckBox.Enabled = enabled;
             }
 
-            hostTextBox.Enabled = enabled;
-            printerSelectButton.Enabled = enabled && printerActionOption != null && printerActionOption.CheckBox.Checked;
-            serverMigrationSelectButton.Enabled = enabled && serverMigrationActionOption != null && serverMigrationActionOption.CheckBox.Checked;
             closeWhenDoneCheckBox.Enabled = enabled;
         }
 
@@ -1277,6 +1264,121 @@ namespace TekSoftwareSuporte
             }
 
             return new Icon(stream);
+        }
+    }
+
+    internal sealed class CollapsibleSection : Panel
+    {
+        private const int HeaderHeight = 36;
+        private readonly Panel header = new Panel();
+        private readonly Panel content = new Panel();
+        private readonly Label titleLabel = new Label();
+        private readonly Label indicatorLabel = new Label();
+        private int optionCount;
+        private bool expanded;
+
+        public event EventHandler ExpandedChanged;
+
+        public CollapsibleSection(string title, SectionIconKind iconKind, Color accent, Color borderColor)
+        {
+            Height = HeaderHeight;
+            Margin = new Padding(4, 3, 4, 1);
+            BackColor = Color.White;
+            BorderStyle = BorderStyle.FixedSingle;
+
+            header.Dock = DockStyle.Top;
+            header.Height = HeaderHeight;
+            header.BackColor = Color.FromArgb(246, 249, 253);
+            header.Cursor = Cursors.Hand;
+            Controls.Add(header);
+
+            SectionIcon icon = new SectionIcon(iconKind);
+            icon.Left = 12;
+            icon.Top = 8;
+            icon.Width = 18;
+            icon.Height = 18;
+            icon.ForeColor = accent;
+            icon.Cursor = Cursors.Hand;
+            header.Controls.Add(icon);
+
+            titleLabel.Text = title;
+            titleLabel.Left = 40;
+            titleLabel.Top = 7;
+            titleLabel.Width = 250;
+            titleLabel.Height = 22;
+            titleLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            titleLabel.ForeColor = accent;
+            titleLabel.Cursor = Cursors.Hand;
+            titleLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            header.Controls.Add(titleLabel);
+
+            indicatorLabel.Text = ">";
+            indicatorLabel.TextAlign = ContentAlignment.MiddleCenter;
+            indicatorLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            indicatorLabel.ForeColor = accent;
+            indicatorLabel.Width = 28;
+            indicatorLabel.Height = HeaderHeight - 2;
+            indicatorLabel.Left = Width - 32;
+            indicatorLabel.Top = 0;
+            indicatorLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            indicatorLabel.Cursor = Cursors.Hand;
+            header.Controls.Add(indicatorLabel);
+
+            content.Left = 0;
+            content.Top = HeaderHeight;
+            content.Width = Math.Max(1, ClientSize.Width);
+            content.Height = 0;
+            content.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            content.BackColor = Color.White;
+            content.Visible = false;
+            Controls.Add(content);
+
+            header.Click += ToggleExpanded;
+            icon.Click += ToggleExpanded;
+            titleLabel.Click += ToggleExpanded;
+            indicatorLabel.Click += ToggleExpanded;
+        }
+
+        public void AddOption(CheckBox checkBox)
+        {
+            checkBox.Left = 12;
+            checkBox.Top = 5 + (optionCount * 32);
+            checkBox.Width = Math.Max(120, ClientSize.Width - 24);
+            checkBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            content.Controls.Add(checkBox);
+            optionCount++;
+            content.Height = 10 + (optionCount * 32);
+
+            if (expanded)
+            {
+                Height = HeaderHeight + content.Height;
+            }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            content.Width = Math.Max(1, ClientSize.Width);
+            titleLabel.Width = Math.Max(80, ClientSize.Width - 80);
+        }
+
+        private void ToggleExpanded(object sender, EventArgs e)
+        {
+            expanded = !expanded;
+            content.Visible = expanded;
+            indicatorLabel.Text = expanded ? "v" : ">";
+            Height = HeaderHeight + (expanded ? content.Height : 0);
+
+            if (Parent != null)
+            {
+                Parent.PerformLayout();
+            }
+
+            EventHandler handler = ExpandedChanged;
+            if (handler != null)
+            {
+                handler(this, EventArgs.Empty);
+            }
         }
     }
 
@@ -1342,6 +1444,107 @@ namespace TekSoftwareSuporte
             Url = url;
             FileName = fileName;
             Name = name;
+        }
+    }
+
+    internal sealed class MappingHostDialog : Form
+    {
+        private readonly Color blue = Color.FromArgb(0, 92, 190);
+        private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
+        private readonly Color border = Color.FromArgb(205, 214, 224);
+        private readonly TextBox hostTextBox = new TextBox();
+
+        public string SelectedHost { get; private set; }
+
+        public MappingHostDialog(string currentHost)
+        {
+            Text = "Configurar mapeamento";
+            ClientSize = new Size(520, 224);
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = Color.White;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+
+            Label title = new Label();
+            title.Text = "Mapear TekSoftware";
+            title.SetBounds(24, 20, 460, 30);
+            title.Font = new Font("Segoe UI", 15F, FontStyle.Bold, GraphicsUnit.Point);
+            title.ForeColor = darkBlue;
+            Controls.Add(title);
+
+            Label label = new Label();
+            label.Text = "Host do servidor";
+            label.SetBounds(24, 64, 180, 22);
+            label.Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
+            label.ForeColor = blue;
+            Controls.Add(label);
+
+            hostTextBox.SetBounds(24, 92, 176, 28);
+            hostTextBox.CharacterCasing = CharacterCasing.Upper;
+            hostTextBox.Text = String.IsNullOrWhiteSpace(currentHost) ? "SERVIDOR" : currentHost;
+            Controls.Add(hostTextBox);
+
+            AddPresetButton("SERVIDOR", 216);
+            AddPresetButton("SERVER", 316);
+            AddPresetButton("SERVERTEK", 400);
+
+            Button cancelButton = new Button();
+            cancelButton.Text = "Cancelar";
+            cancelButton.SetBounds(300, 164, 92, 36);
+            cancelButton.FlatStyle = FlatStyle.Flat;
+            cancelButton.FlatAppearance.BorderColor = border;
+            cancelButton.BackColor = Color.White;
+            cancelButton.DialogResult = DialogResult.Cancel;
+            Controls.Add(cancelButton);
+
+            Button okButton = new Button();
+            okButton.Text = "Confirmar";
+            okButton.SetBounds(404, 164, 92, 36);
+            okButton.FlatStyle = FlatStyle.Flat;
+            okButton.FlatAppearance.BorderColor = Color.FromArgb(0, 76, 170);
+            okButton.BackColor = Color.FromArgb(0, 104, 210);
+            okButton.ForeColor = Color.White;
+            okButton.Click += ConfirmSelection;
+            Controls.Add(okButton);
+
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+            Shown += delegate
+            {
+                hostTextBox.Focus();
+                hostTextBox.SelectAll();
+            };
+        }
+
+        private void AddPresetButton(string text, int left)
+        {
+            Button button = new Button();
+            button.Text = text;
+            button.SetBounds(left, 90, text.Length > 6 ? 88 : 72, 30);
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderColor = border;
+            button.BackColor = Color.White;
+            button.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
+            button.Click += delegate { hostTextBox.Text = text; };
+            Controls.Add(button);
+        }
+
+        private void ConfirmSelection(object sender, EventArgs e)
+        {
+            string host = hostTextBox.Text.Trim();
+            if (String.IsNullOrWhiteSpace(host))
+            {
+                MessageBox.Show(this, "Informe o host do servidor.", "Mapear TekSoftware", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                hostTextBox.Focus();
+                return;
+            }
+
+            SelectedHost = host;
+            DialogResult = DialogResult.OK;
+            Close();
         }
     }
 
