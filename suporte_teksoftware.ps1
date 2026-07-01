@@ -1531,24 +1531,127 @@ function DesativarFirewallWindows {
     LogMsg "Firewall do Windows desativado em todos os perfis."
 }
 
+function TestarStatusServicoComTimeout {
+    param(
+        [string]$Nome,
+        [string]$StatusEsperado,
+        [int]$TimeoutSegundos = 8
+    )
+
+    $Limite = (Get-Date).AddSeconds($TimeoutSegundos)
+
+    do {
+        $Servico = Get-Service -Name $Nome -ErrorAction SilentlyContinue
+
+        if ($null -eq $Servico) {
+            return $false
+        }
+
+        if ("$($Servico.Status)" -ieq $StatusEsperado) {
+            return $true
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+    while ((Get-Date) -lt $Limite)
+
+    return $false
+}
+
+function RegistrarResultadoControleSpooler {
+    param(
+        [string]$Nome,
+        [object]$Resultado
+    )
+
+    foreach ($Linha in @($Resultado.Output)) {
+        if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+            LogMsg "$Linha"
+        }
+    }
+
+    if ($Resultado.TimedOut) {
+        LogMsg "AVISO: $Nome excedeu o tempo limite."
+    }
+    elseif ($Resultado.ExitCode -ne 0) {
+        LogMsg "AVISO: $Nome retornou codigo $($Resultado.ExitCode)."
+    }
+}
+
+function PararSpoolerComTimeout {
+    if (TestarStatusServicoComTimeout -Nome "Spooler" -StatusEsperado "Stopped" -TimeoutSegundos 0) {
+        LogMsg "Spooler de impressao ja estava parado."
+        return $true
+    }
+
+    LogMsg "Solicitando parada do spooler (limite de 10 segundos)..."
+    $Resultado = ExecutarProcessoMapeamentoComTimeout -Arquivo "sc.exe" -Argumentos "stop Spooler" -TimeoutSegundos 10
+    RegistrarResultadoControleSpooler -Nome "Parada do spooler" -Resultado $Resultado
+
+    if (TestarStatusServicoComTimeout -Nome "Spooler" -StatusEsperado "Stopped" -TimeoutSegundos 5) {
+        LogMsg "Spooler de impressao parado."
+        return $true
+    }
+
+    LogMsg "AVISO: Spooler nao parou normalmente. Tentando encerrar o processo do servico."
+    $ResultadoForcado = ExecutarProcessoMapeamentoComTimeout -Arquivo "taskkill.exe" -Argumentos '/F /FI "SERVICES eq Spooler"' -TimeoutSegundos 8
+    RegistrarResultadoControleSpooler -Nome "Parada forcada do spooler" -Resultado $ResultadoForcado
+
+    if (TestarStatusServicoComTimeout -Nome "Spooler" -StatusEsperado "Stopped" -TimeoutSegundos 5) {
+        LogMsg "Spooler de impressao parado apos tentativa forcada."
+        return $true
+    }
+
+    LogMsg "AVISO: Nao foi possivel parar o spooler dentro do tempo limite."
+    return $false
+}
+
+function IniciarSpoolerComTimeout {
+    if (TestarStatusServicoComTimeout -Nome "Spooler" -StatusEsperado "Running" -TimeoutSegundos 0) {
+        LogMsg "Spooler de impressao ja esta em execucao."
+        return $true
+    }
+
+    LogMsg "Solicitando inicio do spooler (limite de 10 segundos)..."
+    $Resultado = ExecutarProcessoMapeamentoComTimeout -Arquivo "sc.exe" -Argumentos "start Spooler" -TimeoutSegundos 10
+    RegistrarResultadoControleSpooler -Nome "Inicio do spooler" -Resultado $Resultado
+
+    if (TestarStatusServicoComTimeout -Nome "Spooler" -StatusEsperado "Running" -TimeoutSegundos 8) {
+        LogMsg "Spooler de impressao iniciado."
+        return $true
+    }
+
+    LogMsg "AVISO: Nao foi possivel iniciar o spooler dentro do tempo limite."
+    return $false
+}
+
 function ResetarImpressora {
     LogMsg "Parando o servico de spooler de impressao..."
-    ExecutarComandoManutencao -Nome "Parar spooler de impressao" -Arquivo "net.exe" -Argumentos @("stop", "spooler") -IgnorarErro | Out-Null
+    $SpoolerParado = PararSpoolerComTimeout
 
     $Fila = Join-Path $env:SystemRoot "System32\Spool\Printers"
 
-    if (Test-Path $Fila) {
+    if ($SpoolerParado -and (Test-Path $Fila)) {
         LogMsg "Limpando a fila de impressao..."
         $PadraoFila = Join-Path $Fila "*"
         ExecutarComandoManutencao -Nome "Limpar fila de impressao" -Arquivo "cmd.exe" -Argumentos @("/c", "del", "/Q", "/F", "/S", "`"$PadraoFila`"") -IgnorarErro | Out-Null
+    }
+    elseif (!$SpoolerParado) {
+        LogMsg "AVISO: Limpeza da fila ignorada porque o spooler nao parou."
     }
     else {
         LogMsg "Pasta da fila de impressao nao encontrada: $Fila"
     }
 
     LogMsg "Iniciando o servico de spooler de impressao..."
-    ExecutarComandoManutencao -Nome "Iniciar spooler de impressao" -Arquivo "net.exe" -Argumentos @("start", "spooler")
-    LogMsg "Spooler de impressao resetado com sucesso."
+    $SpoolerIniciado = IniciarSpoolerComTimeout
+
+    if ($SpoolerParado -and $SpoolerIniciado) {
+        LogMsg "Spooler de impressao resetado com sucesso."
+    }
+    else {
+        LogMsg "AVISO: Reset do spooler concluido parcialmente; o fluxo continuara sem ficar bloqueado."
+    }
 }
 
 function ObterNomeArquivoSeguro {
