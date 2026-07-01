@@ -9,9 +9,13 @@ $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
 $RawUrl = "https://raw.githubusercontent.com/$Repo/refs/heads/main"
 
 $RunId = "{0}_{1}" -f (Get-Date -Format "yyyyMMddHHmmss"), $PID
-$Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui_$RunId"
+$TempUsuario = [System.IO.Path]::GetTempPath()
+$Destino = Join-Path $TempUsuario "InstalacaoCrystalGui_$RunId"
+$CacheDir = Join-Path $TempUsuario "TEK-Toolkit_Cache"
 $GuiExe = Join-Path $Destino "TekFarmaInstaller.exe"
 $DotNetInstaller = Join-Path $Destino "dotnet48.exe"
+$GuiCache = Join-Path $CacheDir "TekFarmaInstaller.exe"
+$DotNetCache = Join-Path $CacheDir "dotnet48.exe"
 
 function LimparHistoricoPowerShell {
     try {
@@ -81,61 +85,222 @@ function Test-DotNet48 {
     return ([int]$release -ge 528040)
 }
 
+function Test-ArquivoDownloadValido {
+    param(
+        [string]$Caminho,
+        [int]$MaxAgeMinutos,
+        [string]$VersaoMinima = ""
+    )
+
+    try {
+        if (![System.IO.File]::Exists($Caminho)) {
+            return $false
+        }
+
+        $Arquivo = New-Object System.IO.FileInfo($Caminho)
+
+        if ($Arquivo.Length -lt 1024) {
+            return $false
+        }
+
+        if ($MaxAgeMinutos -gt 0 -and $Arquivo.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddMinutes(-$MaxAgeMinutos)) {
+            return $false
+        }
+
+        $Extensao = $Arquivo.Extension.ToLowerInvariant()
+
+        if ($Extensao -eq ".exe") {
+            $Stream = [System.IO.File]::OpenRead($Caminho)
+
+            try {
+                if (!($Stream.ReadByte() -eq 0x4D -and $Stream.ReadByte() -eq 0x5A)) {
+                    return $false
+                }
+            }
+            finally {
+                $Stream.Dispose()
+            }
+
+            if (![string]::IsNullOrWhiteSpace($VersaoMinima)) {
+                $VersaoArquivoTexto = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Caminho).FileVersion
+                $VersaoArquivo = New-Object Version
+                $VersaoNecessaria = New-Object Version
+
+                if (![Version]::TryParse($VersaoArquivoTexto, [ref]$VersaoArquivo) -or
+                    ![Version]::TryParse($VersaoMinima, [ref]$VersaoNecessaria) -or
+                    $VersaoArquivo -lt $VersaoNecessaria) {
+                    return $false
+                }
+            }
+
+            return $true
+        }
+
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function EncontrarArquivoTemporarioReutilizavel {
+    param(
+        [string]$NomeArquivo,
+        [string]$CacheArquivo,
+        [int]$MaxAgeMinutos,
+        [string]$VersaoMinima = ""
+    )
+
+    if ($MaxAgeMinutos -le 0) {
+        return ""
+    }
+
+    if (Test-ArquivoDownloadValido -Caminho $CacheArquivo -MaxAgeMinutos $MaxAgeMinutos -VersaoMinima $VersaoMinima) {
+        return $CacheArquivo
+    }
+
+    try {
+        $PastasAnteriores = @([System.IO.Directory]::GetDirectories($TempUsuario, "InstalacaoCrystalGui_*") | Sort-Object {
+            [System.IO.Directory]::GetLastWriteTimeUtc($_)
+        } -Descending)
+
+        foreach ($PastaAnterior in $PastasAnteriores) {
+            if ([string]::Equals($PastaAnterior, $Destino, [StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $Candidato = Join-Path $PastaAnterior $NomeArquivo
+
+            if (Test-ArquivoDownloadValido -Caminho $Candidato -MaxAgeMinutos $MaxAgeMinutos -VersaoMinima $VersaoMinima) {
+                [System.IO.Directory]::CreateDirectory($CacheDir) | Out-Null
+                [System.IO.File]::Copy($Candidato, $CacheArquivo, $true)
+                return $CacheArquivo
+            }
+        }
+    }
+    catch {
+    }
+
+    return ""
+}
+
 function BaixarArquivo {
     param(
         [string]$Url,
         [string]$DestinoArquivo,
-        [string]$Nome
+        [string]$Nome,
+        [string]$CacheArquivo = "",
+        [int]$MaxAgeMinutos = 0,
+        [string]$VersaoMinima = ""
     )
+
+    $Reutilizavel = ""
+
+    if (![string]::IsNullOrWhiteSpace($CacheArquivo)) {
+        $Reutilizavel = EncontrarArquivoTemporarioReutilizavel `
+            -NomeArquivo ([System.IO.Path]::GetFileName($DestinoArquivo)) `
+            -CacheArquivo $CacheArquivo `
+            -MaxAgeMinutos $MaxAgeMinutos `
+            -VersaoMinima $VersaoMinima
+    }
+
+    if (![string]::IsNullOrWhiteSpace($Reutilizavel)) {
+        [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($DestinoArquivo)) | Out-Null
+        [System.IO.File]::Copy($Reutilizavel, $DestinoArquivo, $true)
+        Write-Host ""
+        Write-Host "Reutilizando arquivo ja baixado: $Nome"
+        Write-Host "Cache: $Reutilizavel"
+        return
+    }
 
     Write-Host ""
     Write-Host "Baixando: $Nome"
 
-    $Request = [System.Net.HttpWebRequest]::Create($Url)
-    $Response = $Request.GetResponse()
-    $TotalBytes = $Response.ContentLength
-
-    $Stream = $Response.GetResponseStream()
-    $FileStream = [System.IO.File]::Create($DestinoArquivo)
-
-    $Buffer = New-Object byte[] 1048576
-    $TotalLido = 0
+    $IdParcial = "{0}_{1}" -f $PID, [guid]::NewGuid().ToString("N")
+    $DestinoParcial = if (![string]::IsNullOrWhiteSpace($CacheArquivo)) {
+        "$CacheArquivo.partial.$IdParcial"
+    }
+    else {
+        "$DestinoArquivo.partial.$IdParcial"
+    }
 
     try {
-        do {
-            $Lido = $Stream.Read($Buffer, 0, $Buffer.Length)
+        [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($DestinoParcial)) | Out-Null
 
-            if ($Lido -gt 0) {
-                $FileStream.Write($Buffer, 0, $Lido)
-                $TotalLido += $Lido
+        $Request = [System.Net.HttpWebRequest]::Create($Url)
+        $Response = $Request.GetResponse()
+        $TotalBytes = $Response.ContentLength
+        $Stream = $Response.GetResponseStream()
+        $FileStream = [System.IO.File]::Create($DestinoParcial)
+        $Buffer = New-Object byte[] 1048576
+        $TotalLido = 0
 
-                if ($TotalBytes -gt 0) {
-                    $Percentual = [math]::Round(($TotalLido / $TotalBytes) * 100, 2)
-                    $MBLido = [math]::Round($TotalLido / 1MB, 2)
-                    $MBTotal = [math]::Round($TotalBytes / 1MB, 2)
+        try {
+            do {
+                $Lido = $Stream.Read($Buffer, 0, $Buffer.Length)
 
-                    Write-Progress -Activity "Baixando instalador" -Status "$Nome - $MBLido MB de $MBTotal MB" -PercentComplete $Percentual
+                if ($Lido -gt 0) {
+                    $FileStream.Write($Buffer, 0, $Lido)
+                    $TotalLido += $Lido
+
+                    if ($TotalBytes -gt 0) {
+                        $Percentual = [math]::Round(($TotalLido / $TotalBytes) * 100, 2)
+                        $MBLido = [math]::Round($TotalLido / 1MB, 2)
+                        $MBTotal = [math]::Round($TotalBytes / 1MB, 2)
+
+                        Write-Progress -Activity "Baixando instalador" -Status "$Nome - $MBLido MB de $MBTotal MB" -PercentComplete $Percentual
+                    }
                 }
+
+            } while ($Lido -gt 0)
+        }
+        finally {
+            if ($FileStream) {
+                $FileStream.Dispose()
             }
 
-        } while ($Lido -gt 0)
+            if ($Stream) {
+                $Stream.Dispose()
+            }
+
+            if ($Response) {
+                $Response.Dispose()
+            }
+        }
+
+        if ($TotalBytes -gt 0 -and (New-Object System.IO.FileInfo($DestinoParcial)).Length -ne $TotalBytes) {
+            throw "O download de $Nome ficou incompleto."
+        }
+
+        if (!(Test-ArquivoDownloadValido -Caminho $DestinoParcial -MaxAgeMinutos 0 -VersaoMinima $VersaoMinima)) {
+            throw "O arquivo baixado para $Nome nao passou na validacao."
+        }
+
+        if (![string]::IsNullOrWhiteSpace($CacheArquivo)) {
+            if ([System.IO.File]::Exists($CacheArquivo)) {
+                [System.IO.File]::Delete($CacheArquivo)
+            }
+
+            [System.IO.File]::Move($DestinoParcial, $CacheArquivo)
+            [System.IO.File]::Copy($CacheArquivo, $DestinoArquivo, $true)
+        }
+        else {
+            if ([System.IO.File]::Exists($DestinoArquivo)) {
+                [System.IO.File]::Delete($DestinoArquivo)
+            }
+
+            [System.IO.File]::Move($DestinoParcial, $DestinoArquivo)
+        }
+
+        Write-Host "Concluido: $Nome"
     }
     finally {
-        if ($FileStream) {
-            $FileStream.Close()
-        }
+        Write-Progress -Activity "Baixando instalador" -Completed
 
-        if ($Stream) {
-            $Stream.Close()
-        }
-
-        if ($Response) {
-            $Response.Close()
+        if ([System.IO.File]::Exists($DestinoParcial)) {
+            [System.IO.File]::Delete($DestinoParcial)
         }
     }
-
-    Write-Progress -Activity "Baixando instalador" -Completed
-    Write-Host "Concluido: $Nome"
 }
 
 Set-ConsoleVisible -Visible $false
@@ -149,12 +314,30 @@ Write-Host "====================================="
 Write-Host ""
 Write-Host "Preparando interface grafica..."
 
-New-Item -ItemType Directory -Path $Destino -Force | Out-Null
+[System.IO.Directory]::CreateDirectory($Destino) | Out-Null
+[System.IO.Directory]::CreateDirectory($CacheDir) | Out-Null
+
+foreach ($ParcialAntigo in @([System.IO.Directory]::GetFiles($CacheDir, "*.partial.*"))) {
+    try {
+        if ([System.IO.File]::GetLastWriteTimeUtc($ParcialAntigo) -lt [DateTime]::UtcNow.AddDays(-1)) {
+            [System.IO.File]::Delete($ParcialAntigo)
+        }
+    }
+    catch {
+    }
+}
+
+Write-Host "Cache de downloads: $CacheDir"
 
 if (!(Test-DotNet48)) {
     Write-Host ""
     Write-Host ".NET Framework 4.8 nao encontrado. Instalando dependencia..."
-    BaixarArquivo -Url "$BaseUrl/dotnet48.exe" -DestinoArquivo $DotNetInstaller -Nome "dotnet48.exe"
+    BaixarArquivo `
+        -Url "$BaseUrl/dotnet48.exe" `
+        -DestinoArquivo $DotNetInstaller `
+        -Nome "dotnet48.exe" `
+        -CacheArquivo $DotNetCache `
+        -MaxAgeMinutos 43200
 
     try {
         $DotNetProcesso = Start-Process -FilePath $DotNetInstaller -Verb RunAs -ArgumentList "/q /norestart" -Wait -PassThru -ErrorAction Stop
@@ -179,7 +362,13 @@ if (!(Test-DotNet48)) {
     }
 }
 
-BaixarArquivo -Url "$RawUrl/TekFarmaInstaller.exe" -DestinoArquivo $GuiExe -Nome "TekFarmaInstaller.exe"
+BaixarArquivo `
+    -Url "$RawUrl/TekFarmaInstaller.exe" `
+    -DestinoArquivo $GuiExe `
+    -Nome "TekFarmaInstaller.exe" `
+    -CacheArquivo $GuiCache `
+    -MaxAgeMinutos 15 `
+    -VersaoMinima "1.0.2.0"
 
 Write-Host ""
 Write-Host "Abrindo interface grafica..."

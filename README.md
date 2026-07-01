@@ -45,14 +45,31 @@ gui/build.ps1                  Compilação dos executáveis
 Instalador:
 
 ```powershell
-irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/install.ps1 | iex
 ```
 
 Central de suporte:
 
 ```powershell
-irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/main/suporte.ps1 | iex
+irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/suporte.ps1 | iex
 ```
+
+## Cache de downloads
+
+Os instaladores e pacotes válidos são preservados em
+`%TEMP%\TEK-Toolkit_Cache`. Ao repetir uma instalação interrompida, o
+instalador procura primeiro nesse cache e nas pastas temporárias de execuções
+anteriores.
+
+- arquivos de Release podem ser reutilizados por até 30 dias;
+- arquivos de versão e banco baixados do site TekFarma podem ser reutilizados
+  por até 2 horas;
+- a interface inicial pode ser reutilizada por até 15 minutos;
+- scripts PowerShell são sempre baixados novamente;
+- arquivos com sufixo `.partial` nunca são reutilizados.
+
+Para forçar todos os downloads novamente, exclua a pasta
+`%TEMP%\TEK-Toolkit_Cache`.
 
 ## Compilação
 

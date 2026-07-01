@@ -10,6 +10,12 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
+[assembly: AssemblyTitle("TekFarmaInstaller")]
+[assembly: AssemblyProduct("TEK Toolkit")]
+[assembly: AssemblyCompany("SOLPPE")]
+[assembly: AssemblyVersion("1.0.2.0")]
+[assembly: AssemblyFileVersion("1.0.2.0")]
+
 namespace TekFarmaInstaller
 {
     internal static class Program
@@ -682,17 +688,256 @@ namespace TekFarmaInstaller
             return "1";
         }
 
+        private TimeSpan GetDownloadCacheAge(DownloadItem item)
+        {
+            if (item == null || item.FileName.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+            {
+                return TimeSpan.Zero;
+            }
+
+            if (item.Url.IndexOf("/releases/download/", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return TimeSpan.FromDays(30);
+            }
+
+            return TimeSpan.FromHours(2);
+        }
+
+        private bool IsDownloadFileValid(string path, DownloadItem item, TimeSpan maxAge)
+        {
+            try
+            {
+                FileInfo file = new FileInfo(path);
+                if (!file.Exists || file.Length < 128)
+                {
+                    return false;
+                }
+
+                if (maxAge > TimeSpan.Zero && DateTime.UtcNow - file.LastWriteTimeUtc > maxAge)
+                {
+                    return false;
+                }
+
+                string extension = Path.GetExtension(item.FileName).ToLowerInvariant();
+                byte[] header = new byte[8];
+                int read;
+
+                using (FileStream stream = File.OpenRead(path))
+                {
+                    read = stream.Read(header, 0, header.Length);
+                }
+
+                if (extension == ".exe")
+                {
+                    bool isExecutable = read >= 2 && header[0] == 0x4D && header[1] == 0x5A;
+                    bool isZipPayload = read >= 4 && header[0] == 0x50 && header[1] == 0x4B;
+                    return file.Length >= 65536 && (isExecutable || isZipPayload);
+                }
+
+                if (extension == ".zip")
+                {
+                    return read >= 4 && header[0] == 0x50 && header[1] == 0x4B;
+                }
+
+                if (extension == ".msi")
+                {
+                    return read >= 8 &&
+                        header[0] == 0xD0 && header[1] == 0xCF &&
+                        header[2] == 0x11 && header[3] == 0xE0 &&
+                        header[4] == 0xA1 && header[5] == 0xB1 &&
+                        header[6] == 0x1A && header[7] == 0xE1;
+                }
+
+                if (extension == ".ps1")
+                {
+                    string prefix;
+                    using (StreamReader reader = new StreamReader(path, Encoding.UTF8, true))
+                    {
+                        char[] chars = new char[256];
+                        int charsRead = reader.Read(chars, 0, chars.Length);
+                        prefix = new string(chars, 0, charsRead);
+                    }
+
+                    return file.Length >= 512 &&
+                        prefix.IndexOf("<html", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        prefix.IndexOf("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) < 0;
+                }
+
+                return file.Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string FindReusableDownload(DownloadItem item, string cacheDir, TimeSpan maxAge)
+        {
+            if (maxAge <= TimeSpan.Zero)
+            {
+                return null;
+            }
+
+            string cachePath = Path.Combine(cacheDir, item.FileName);
+            if (IsDownloadFileValid(cachePath, item, maxAge))
+            {
+                return cachePath;
+            }
+
+            string bestCandidate = null;
+            DateTime bestWriteTime = DateTime.MinValue;
+
+            try
+            {
+                string[] previousRuns = Directory.GetDirectories(Path.GetTempPath(), "InstalacaoCrystal_*");
+                for (int i = 0; i < previousRuns.Length; i++)
+                {
+                    if (String.Equals(previousRuns[i], tempDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string candidate = Path.Combine(previousRuns[i], item.FileName);
+                    if (!IsDownloadFileValid(candidate, item, maxAge))
+                    {
+                        continue;
+                    }
+
+                    DateTime writeTime = File.GetLastWriteTimeUtc(candidate);
+                    if (writeTime > bestWriteTime)
+                    {
+                        bestWriteTime = writeTime;
+                        bestCandidate = candidate;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            if (String.IsNullOrWhiteSpace(bestCandidate))
+            {
+                return null;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(cacheDir);
+                File.Copy(bestCandidate, cachePath, true);
+                return cachePath;
+            }
+            catch
+            {
+                return bestCandidate;
+            }
+        }
+
+        private bool DownloadOrReuseFile(DownloadItem item, string destination, string cacheDir)
+        {
+            TimeSpan maxAge = GetDownloadCacheAge(item);
+            string reusable = FindReusableDownload(item, cacheDir, maxAge);
+
+            if (!String.IsNullOrWhiteSpace(reusable))
+            {
+                File.Copy(reusable, destination, true);
+                AppendLog("[CACHE] Reutilizado: " + item.Name);
+                AppendLog("[CACHE] Origem: " + reusable);
+                return true;
+            }
+
+            string cachePath = maxAge > TimeSpan.Zero ? Path.Combine(cacheDir, item.FileName) : null;
+            string partialBase = cachePath ?? destination;
+            string partialPath = partialBase + ".partial." + Process.GetCurrentProcess().Id + "." + Guid.NewGuid().ToString("N");
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(partialPath));
+
+                using (WebClient client = new WebClient())
+                {
+                    client.DownloadFile(item.Url, partialPath);
+                }
+
+                if (!IsDownloadFileValid(partialPath, item, TimeSpan.Zero))
+                {
+                    throw new InvalidDataException(item.Name + " foi baixado incompleto ou em formato invalido.");
+                }
+
+                if (cachePath != null)
+                {
+                    if (File.Exists(cachePath))
+                    {
+                        File.Delete(cachePath);
+                    }
+
+                    File.Move(partialPath, cachePath);
+                    File.Copy(cachePath, destination, true);
+                }
+                else
+                {
+                    if (File.Exists(destination))
+                    {
+                        File.Delete(destination);
+                    }
+
+                    File.Move(partialPath, destination);
+                }
+
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(partialPath))
+                    {
+                        File.Delete(partialPath);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private void CleanupStaleCachePartials(string cacheDir)
+        {
+            try
+            {
+                if (!Directory.Exists(cacheDir))
+                {
+                    return;
+                }
+
+                string[] partials = Directory.GetFiles(cacheDir, "*.partial.*");
+                for (int i = 0; i < partials.Length; i++)
+                {
+                    if (File.GetLastWriteTimeUtc(partials[i]) < DateTime.UtcNow.AddDays(-1))
+                    {
+                        try { File.Delete(partials[i]); } catch { }
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private void ExecutePlan(WorkPlan plan, BackgroundWorker bg)
         {
             tempDir = Path.Combine(
                 Path.GetTempPath(),
                 "InstalacaoCrystal_" + Process.GetCurrentProcess().Id + "_" + DateTime.Now.ToString("yyyyMMddHHmmss"));
             Directory.CreateDirectory(tempDir);
+            string cacheDir = Path.Combine(Path.GetTempPath(), "TEK-Toolkit_Cache");
+            Directory.CreateDirectory(cacheDir);
+            CleanupStaleCachePartials(cacheDir);
 
             int totalUnits = Math.Max(1, plan.Downloads.Count + 1);
             int done = 0;
 
             AppendLog("[INFO] Pasta temporaria: " + tempDir);
+            AppendLog("[INFO] Cache de downloads: " + cacheDir);
 
             for (int i = 0; i < plan.Downloads.Count; i++)
             {
@@ -701,19 +946,16 @@ namespace TekFarmaInstaller
                 DownloadItem item = plan.Downloads[i];
                 string destination = Path.Combine(tempDir, item.FileName);
 
-                bg.ReportProgress(CalcPercent(done, totalUnits), "Baixando " + item.Name + "...");
-                AppendLog("[INFO] Baixando: " + item.Name);
+                bg.ReportProgress(CalcPercent(done, totalUnits), "Verificando cache: " + item.Name + "...");
+                AppendLog("[INFO] Verificando cache/download: " + item.Name);
                 AppendLog("[URL] " + item.Url);
 
-                using (WebClient client = new WebClient())
-                {
-                    client.DownloadFile(item.Url, destination);
-                }
+                bool reused = DownloadOrReuseFile(item, destination, cacheDir);
 
                 FileInfo fi = new FileInfo(destination);
-                AppendLog("[OK] " + item.Name + " baixado (" + FormatBytes(fi.Length) + ")");
+                AppendLog("[OK] " + item.Name + (reused ? " reutilizado" : " baixado") + " (" + FormatBytes(fi.Length) + ")");
                 done++;
-                bg.ReportProgress(CalcPercent(done, totalUnits), "Download concluido: " + item.Name);
+                bg.ReportProgress(CalcPercent(done, totalUnits), (reused ? "Arquivo reutilizado: " : "Download concluido: ") + item.Name);
             }
 
             if (cancelRequested) return;
