@@ -28,7 +28,7 @@ namespace TekSoftwareSuporte
     {
         private const string Version = "v1.0";
         private const string DriversVersion = "drivers-impressoras-v1";
-        private const string Repo = "Nata-Felix/Instalacao_crystal_adv";
+        private const string Repo = "Nata-Felix/TEK-Toolkit";
         private const string BaseUrl = "https://github.com/" + Repo + "/releases/download/" + Version;
         private const string DriversBaseUrl = "https://github.com/" + Repo + "/releases/download/" + DriversVersion;
         private const string DriversIndexUrl = DriversBaseUrl + "/drivers-impressoras.json";
