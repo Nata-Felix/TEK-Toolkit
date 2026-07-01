@@ -32,7 +32,7 @@ namespace TekSoftwareSuporte
         private const string BaseUrl = "https://github.com/" + Repo + "/releases/download/" + Version;
         private const string DriversBaseUrl = "https://github.com/" + Repo + "/releases/download/" + DriversVersion;
         private const string DriversIndexUrl = DriversBaseUrl + "/drivers-impressoras.json";
-        private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/main";
+        private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/refs/heads/main";
         private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
         private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
         private const string RadminVpnUrl = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe";

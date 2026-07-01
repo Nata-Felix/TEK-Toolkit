@@ -29,7 +29,7 @@ namespace TekFarmaInstaller
         private const string Version = "v1.0";
         private const string Repo = "Nata-Felix/TEK-Toolkit";
         private const string BaseUrl = "https://github.com/" + Repo + "/releases/download/" + Version;
-        private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/main";
+        private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/refs/heads/main";
         private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
         private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
         private const string UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip";

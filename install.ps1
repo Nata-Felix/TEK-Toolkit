@@ -6,7 +6,7 @@ $Version = "v1.0"
 $Repo = "Nata-Felix/TEK-Toolkit"
 
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
-$RawUrl = "https://raw.githubusercontent.com/$Repo/main"
+$RawUrl = "https://raw.githubusercontent.com/$Repo/refs/heads/main"
 
 $RunId = "{0}_{1}" -f (Get-Date -Format "yyyyMMddHHmmss"), $PID
 $Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui_$RunId"
@@ -202,7 +202,7 @@ catch {
     Write-Host $_.Exception.Message
     Write-Host ""
     Write-Host "Fallback em modo texto:"
-    Write-Host "irm https://raw.githubusercontent.com/$Repo/main/install_console.ps1 | iex"
+    Write-Host "irm https://raw.githubusercontent.com/$Repo/refs/heads/main/install_console.ps1 | iex"
     Start-Sleep -Seconds 8
     LimparHistoricoPowerShell
     [Environment]::Exit(1)

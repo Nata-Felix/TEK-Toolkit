@@ -6,7 +6,7 @@ $Version = "v1.0"
 $Repo = "Nata-Felix/TEK-Toolkit"
 
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
-$RawUrl = "https://raw.githubusercontent.com/$Repo/main"
+$RawUrl = "https://raw.githubusercontent.com/$Repo/refs/heads/main"
 
 $RunId = "{0}_{1}" -f (Get-Date -Format "yyyyMMddHHmmss"), $PID
 $Destino = Join-Path ([System.IO.Path]::GetTempPath()) "TekSoftwareSuporteGui_$RunId"
