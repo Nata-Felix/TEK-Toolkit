@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("SOLPPE_toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
 [assembly: AssemblyCopyright("Copyright Natã 2026")]
-[assembly: AssemblyVersion("1.0.3.0")]
-[assembly: AssemblyFileVersion("1.0.3.0")]
+[assembly: AssemblyVersion("1.0.4.0")]
+[assembly: AssemblyFileVersion("1.0.4.0")]
 
 namespace SolppeUpdater
 {

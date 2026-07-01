@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("SOLPPE_toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
 [assembly: AssemblyCopyright("Copyright Natã 2026")]
-[assembly: AssemblyVersion("1.0.3.0")]
-[assembly: AssemblyFileVersion("1.0.3.0")]
+[assembly: AssemblyVersion("1.0.4.0")]
+[assembly: AssemblyFileVersion("1.0.4.0")]
 
 namespace ToolkitAll
 {
@@ -35,7 +35,7 @@ namespace ToolkitAll
 
     internal sealed class SupportForm : Form
     {
-        private const string AppVersion = "1.0.3";
+        private const string AppVersion = "1.0.4";
         private const string Version = "v1.0";
         private const string DriversVersion = "drivers-impressoras-v1";
         private const string Repo = "Nata-Felix/Instalacao_crystal_adv";
@@ -2070,11 +2070,11 @@ namespace ToolkitAll
             command.AppendLine("  $knownTotalBytes = 0L; $downloadedBytes = 0L");
             command.AppendLine("  if ($doAvailable) {");
             command.AppendLine("    $doItems = @(Get-DeliveryOptimizationStatus -ErrorAction SilentlyContinue | Where-Object { $_.PredefinedCallerApplication -eq 'Microsoft Office Click-to-Run' -and $_.SourceUrl -match '(?i)(officecdn|c2r\\.ts\\.cdn\\.office)' })");
-            command.AppendLine("    foreach ($doItem in $doItems) { $baselineBytes = if ($doBaseline.ContainsKey($doItem.FileId)) { [long]$doBaseline[$doItem.FileId] } else { 0L }; $itemSize = [Math]::Max(0, [long]$doItem.FileSize - [Math]::Min([long]$doItem.FileSize, $baselineBytes)); $itemDownloaded = [Math]::Max(0, [long]$doItem.TotalBytesDownloaded - $baselineBytes); $knownTotalBytes += $itemSize; $downloadedBytes += [Math]::Min($itemSize, $itemDownloaded) }");
+            command.AppendLine("    foreach ($doItem in $doItems) { $baselineBytes = if ($doBaseline.ContainsKey($doItem.FileId)) { [long]$doBaseline[$doItem.FileId] } else { 0L }; $itemSize = [Math]::Max([long]0, ([long]$doItem.FileSize - [Math]::Min([long]$doItem.FileSize, $baselineBytes))); $itemDownloaded = [Math]::Max([long]0, ([long]$doItem.TotalBytesDownloaded - $baselineBytes)); $knownTotalBytes += $itemSize; $downloadedBytes += [Math]::Min($itemSize, $itemDownloaded) }");
             command.AppendLine("  }");
             command.AppendLine("  if ($knownTotalBytes -le 0) { $downloadMeasure = Get-ChildItem -LiteralPath $officeSource -File -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum; $downloadedBytes = if ($null -eq $downloadMeasure.Sum) { 0L } else { [long]$downloadMeasure.Sum } }");
             command.AppendLine("  $sampleSeconds = [Math]::Max(0.25, ($now - $lastSampleAt).TotalSeconds)");
-            command.AppendLine("  $deltaBytes = [Math]::Max(0, $downloadedBytes - $lastDownloadedBytes)");
+            command.AppendLine("  $deltaBytes = [Math]::Max([long]0, ([long]$downloadedBytes - [long]$lastDownloadedBytes))");
             command.AppendLine("  $instantBytesPerSecond = $deltaBytes / $sampleSeconds");
             command.AppendLine("  if ($instantBytesPerSecond -gt 0 -and $instantBytesPerSecond -lt 500MB) { $smoothedBytesPerSecond = if ($smoothedBytesPerSecond -le 0) { $instantBytesPerSecond } else { ($smoothedBytesPerSecond * 0.72) + ($instantBytesPerSecond * 0.28) } }");
             command.AppendLine("  if ($knownTotalBytes -gt 0) { $rawDownloadPercent = [Math]::Min(99, [Math]::Round(($downloadedBytes * 100.0) / $knownTotalBytes)); $displayDownloadPercent = [Math]::Max($displayDownloadPercent, $rawDownloadPercent) }");
@@ -2487,7 +2487,16 @@ namespace ToolkitAll
         private void RunLocalPowerShellAction(string progressText, string command, BackgroundWorker bg)
         {
             bg.ReportProgress(CalcPercent(completedUnits, totalUnits), progressText);
-            string encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+            string wrappedCommand =
+                "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\r\n" +
+                "$OutputEncoding = [Console]::OutputEncoding\r\n" +
+                "$ProgressPreference = 'SilentlyContinue'\r\n" +
+                "try {\r\n& {\r\n" + command + "\r\n}\r\n" +
+                "} catch {\r\n" +
+                "  [Console]::Out.WriteLine(('SOLPPE_ERROR|' + $_.Exception.Message))\r\n" +
+                "  exit 1\r\n" +
+                "}\r\n";
+            string encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(wrappedCommand));
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = "powershell.exe";
@@ -2495,6 +2504,8 @@ namespace ToolkitAll
             psi.UseShellExecute = false;
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardErrorEncoding = Encoding.UTF8;
             psi.CreateNoWindow = true;
             psi.WorkingDirectory = String.IsNullOrWhiteSpace(tempDir) ? Path.GetTempPath() : tempDir;
 
@@ -2505,6 +2516,12 @@ namespace ToolkitAll
                 {
                     if (!String.IsNullOrWhiteSpace(e.Data))
                     {
+                        if (e.Data.StartsWith("SOLPPE_ERROR|", StringComparison.Ordinal))
+                        {
+                            AppendLog("[ERRO] " + e.Data.Substring("SOLPPE_ERROR|".Length));
+                            return;
+                        }
+
                         int localPercent;
                         ExecutionProgressInfo progressInfo;
                         if (TryParseExecutionProgress(e.Data, out localPercent, out progressInfo))
@@ -2520,7 +2537,8 @@ namespace ToolkitAll
                 };
                 process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 {
-                    if (!String.IsNullOrWhiteSpace(e.Data)) AppendLog("[ERRO] " + e.Data);
+                    string errorText = NormalizePowerShellErrorLine(e.Data);
+                    if (!String.IsNullOrWhiteSpace(errorText)) AppendLog("[ERRO] " + errorText);
                 };
 
                 runningProcess = process;
@@ -2547,6 +2565,31 @@ namespace ToolkitAll
                     throw new InvalidOperationException("A acao terminou com ExitCode " + process.ExitCode + ".");
                 }
             }
+        }
+
+        private static string NormalizePowerShellErrorLine(string text)
+        {
+            if (String.IsNullOrWhiteSpace(text) || String.Equals(text.Trim(), "#< CLIXML", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            string value = text.Trim();
+            if (value.StartsWith("<Objs", StringComparison.OrdinalIgnoreCase) && value.IndexOf("powershell/2004/04", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (value.IndexOf("S=\"progress\"", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return null;
+                }
+
+                value = value.Replace("_x000D__x000A_", Environment.NewLine).Replace("_x000A_", Environment.NewLine);
+                value = System.Text.RegularExpressions.Regex.Replace(value, "<[^>]+>", " ");
+                value = WebUtility.HtmlDecode(value);
+                value = System.Text.RegularExpressions.Regex.Replace(value, "[ \\t]+", " ");
+                return value.Trim();
+            }
+
+            return value;
         }
 
         private int CalcUnitProgress(int localPercent)
