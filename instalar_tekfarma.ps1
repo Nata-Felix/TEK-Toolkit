@@ -1226,6 +1226,12 @@ function FluxoServidor {
     }
 
     ExecutarPasso "Extrair banco TEKFARMA(NOV-2020).zip" {
+        $BancoExistente = Join-Path $DestinoSistema "TekFarma.fdb"
+        if (Test-Path -LiteralPath $BancoExistente -PathType Leaf) {
+            LogMsg "Banco existente preservado; extracao do banco limpo ignorada: $BancoExistente"
+            return
+        }
+
         ExtrairZip -Zip $BancoTekFarmaZip -Destino $DestinoSistema -Nome "TEKFARMA(NOV-2020).zip" | Out-Null
     }
 
