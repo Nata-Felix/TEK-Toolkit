@@ -45,13 +45,44 @@ gui/build.ps1                  Compilação dos executáveis
 Instalador:
 
 ```powershell
-irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/install.ps1 | iex
 ```
 
 Central de suporte:
 
 ```powershell
-irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/suporte.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/suporte.ps1 | iex
+```
+
+### Redes com conexão HTTPS instável
+
+Se o PowerShell informar que a conexão subjacente foi fechada, use o bloco
+abaixo. Ele força TLS 1.2 e tenta baixar o bootstrap até três vezes:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$uri = "https://raw.githubusercontent.com/Nata-Felix/TEK-Toolkit/refs/heads/main/install.ps1"
+$bootstrap = $null
+$ultimoErro = $null
+
+for ($tentativa = 1; $tentativa -le 3 -and $null -eq $bootstrap; $tentativa++) {
+    try {
+        $bootstrap = (New-Object Net.WebClient).DownloadString($uri)
+    }
+    catch {
+        $ultimoErro = $_
+
+        if ($tentativa -lt 3) {
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
+if ($null -eq $bootstrap) {
+    throw $ultimoErro
+}
+
+Invoke-Expression $bootstrap
 ```
 
 ## Cache de downloads

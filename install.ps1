@@ -391,7 +391,7 @@ catch {
     Write-Host $_.Exception.Message
     Write-Host ""
     Write-Host "Fallback em modo texto:"
-    Write-Host "irm https://raw.githubusercontent.com/$Repo/refs/heads/main/install_console.ps1 | iex"
+    Write-Host "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/$Repo/refs/heads/main/install_console.ps1 | iex"
     Start-Sleep -Seconds 8
     LimparHistoricoPowerShell
     [Environment]::Exit(1)
