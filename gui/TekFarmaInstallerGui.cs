@@ -639,7 +639,7 @@ namespace TekFarmaInstaller
             if (mode == InstallMode.CrystalWin7)
             {
                 AddRelease(plan, "dotnet48.exe");
-                AddRelease(plan, "VC_redist.x86 (Win7).exe");
+                AddRelease(plan, "VC_redist.x86.Win7.exe");
             }
 
             if (mode == InstallMode.TekFarma && perfilTek == "servidor")
