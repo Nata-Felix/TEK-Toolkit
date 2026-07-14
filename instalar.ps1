@@ -11,6 +11,7 @@ $CrystalUninstallLog = Join-Path $Base "crystal_uninstall.log"
 
 $Net48 = Join-Path $Base "dotnet48.exe"
 $VCx86 = Join-Path $Base "VC_redist.x86.exe"
+$VCx86Win7 = Join-Path $Base "VC_redist.x86 (Win7).exe"
 $VCx64 = Join-Path $Base "VC_redist.x64.exe"
 $CrystalMsi = Join-Path $Base "CRRuntime_32bit_13_0_39.msi"
 $FixZip = Join-Path $Base "crdb_adoplus.zip"
@@ -734,7 +735,7 @@ if (!(Test-Admin)) {
     exit 1
 }
 
-if ($Modo -notin @("1", "2", "3")) {
+if ($Modo -notin @("1", "2", "3", "4")) {
     LogMsg "ERRO: Modo invalido: $Modo"
     exit 1
 }
@@ -743,7 +744,12 @@ if ($Modo -eq "1" -or $Modo -eq "3") {
     AtualizarVersaoTekFarma -TipoVersao $TipoVersao
 }
 
-if ($Modo -eq "2" -or $Modo -eq "3") {
+if ($Modo -eq "4") {
+    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
+    InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7"
+}
+
+if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
     InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
     InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86"
     InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64"

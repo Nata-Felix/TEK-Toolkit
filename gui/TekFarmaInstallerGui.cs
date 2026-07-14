@@ -198,9 +198,11 @@ namespace TekFarmaInstaller
                 "Atualiza apenas a versao do TekFarma em C:\\TekSoftware\\TekFarma.");
             AddOption(optionsPanel, InstallMode.Crystal, 70, "Somente Crystal", "", "diamond",
                 ".NET 4.8, VS x86/x64, CRRuntime_39 e fix Crystal.");
-            AddOption(optionsPanel, InstallMode.Full, 132, "Completo", "versao + Crystal", "stack",
+            AddOption(optionsPanel, InstallMode.CrystalWin7, 132, "Somente Crystal Win7", "", "diamond",
+                ".NET 4.8, VS x86 para Windows 7, CRRuntime_39 e fix Crystal.");
+            AddOption(optionsPanel, InstallMode.Full, 194, "Completo", "versao + Crystal", "stack",
                 "Atualiza a versao do TekFarma e instala .NET 4.8, VS x86/x64, CRRuntime_39 e fix Crystal.");
-            AddOption(optionsPanel, InstallMode.TekFarma, 194, "Novo Servidor/Terminal", "", "network",
+            AddOption(optionsPanel, InstallMode.TekFarma, 256, "Novo Servidor/Terminal", "", "network",
                 "Servidor: Firebird, pastas, banco, versao e dependencias. Terminal: dependencias, credencial, mapeamento e atalho.");
 
             BuildChoicePanel(root);
@@ -621,7 +623,7 @@ namespace TekFarmaInstaller
             plan.TipoVersao = tipoVersao;
             plan.PerfilTek = perfilTek;
 
-            if (mode == InstallMode.Crystal || mode == InstallMode.Full || mode == InstallMode.TekFarma)
+            if (mode == InstallMode.Crystal || mode == InstallMode.CrystalWin7 || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
                 AddRelease(plan, "CRRuntime_32bit_13_0_39.msi");
                 AddRelease(plan, "crdb_adoplus.zip");
@@ -632,6 +634,12 @@ namespace TekFarmaInstaller
                 AddRelease(plan, "dotnet48.exe");
                 AddRelease(plan, "VC_redist.x86.exe");
                 AddRelease(plan, "VC_redist.x64.exe");
+            }
+
+            if (mode == InstallMode.CrystalWin7)
+            {
+                AddRelease(plan, "dotnet48.exe");
+                AddRelease(plan, "VC_redist.x86 (Win7).exe");
             }
 
             if (mode == InstallMode.TekFarma && perfilTek == "servidor")
@@ -685,6 +693,7 @@ namespace TekFarmaInstaller
             if (mode == InstallMode.Versao) return "1";
             if (mode == InstallMode.Crystal) return "2";
             if (mode == InstallMode.Full) return "3";
+            if (mode == InstallMode.CrystalWin7) return "4";
             return "1";
         }
 
@@ -1126,6 +1135,7 @@ namespace TekFarmaInstaller
     {
         Versao,
         Crystal,
+        CrystalWin7,
         Full,
         TekFarma
     }
