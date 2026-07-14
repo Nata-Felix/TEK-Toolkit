@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.2.0")]
-[assembly: AssemblyFileVersion("1.0.2.0")]
+[assembly: AssemblyVersion("1.0.3.0")]
+[assembly: AssemblyFileVersion("1.0.3.0")]
 
 namespace TekFarmaInstaller
 {
