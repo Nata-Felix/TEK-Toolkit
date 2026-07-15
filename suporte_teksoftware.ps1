@@ -3247,13 +3247,19 @@ function GarantirCompartilhamentoTekSoftwareSuporte {
                 New-SmbShare -Name "TekSoftware" -Path $RaizTekSoftware -Description "TekSoftware" | Out-Null
             }
 
-            foreach ($Conta in @("Todos", "Everyone", "Rede", "Network", "Convidado", "Guest")) {
+            foreach ($Conta in @("Todos", "Everyone", "Rede", "Network")) {
                 try {
                     Grant-SmbShareAccess -Name "TekSoftware" -AccountName $Conta -AccessRight Full -Force -ErrorAction Stop | Out-Null
                     LogMsg "Permissao de compartilhamento aplicada para: $Conta"
                 }
                 catch {
                 }
+            }
+            $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+            if ($Guest) {
+                $ContaConvidado = "$env:COMPUTERNAME\$($Guest.Name)"
+                Grant-SmbShareAccess -Name "TekSoftware" -AccountName $ContaConvidado -AccessRight Full -Force -ErrorAction Stop | Out-Null
+                LogMsg "Permissao de compartilhamento aplicada para usuario local: $ContaConvidado"
             }
         }
         catch {
@@ -3264,7 +3270,7 @@ function GarantirCompartilhamentoTekSoftwareSuporte {
         LogMsg "AVISO: New-SmbShare nao disponivel neste Windows."
     }
 
-    foreach ($Sid in @("S-1-1-0", "S-1-5-2", "S-1-5-32-546")) {
+    foreach ($Sid in @("S-1-1-0", "S-1-5-2")) {
         try {
             & icacls.exe $RaizTekSoftware /grant "*$Sid`:(OI)(CI)F" /T /C | Out-Null
             LogMsg "Permissao NTFS aplicada para SID $Sid"
@@ -3272,6 +3278,11 @@ function GarantirCompartilhamentoTekSoftwareSuporte {
         catch {
             LogMsg "AVISO: Falha ao aplicar permissao NTFS para SID ${Sid}: $($_.Exception.Message)"
         }
+    }
+    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    if ($Guest) {
+        & icacls.exe $RaizTekSoftware /grant "*$($Guest.SID)`:(OI)(CI)F" /T /C | Out-Null
+        LogMsg "Permissao NTFS aplicada para usuario local: $($Guest.Name)"
     }
 }
 

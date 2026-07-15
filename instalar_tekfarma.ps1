@@ -355,10 +355,12 @@ function RestaurarPermissaoCompartilhamento {
 function GarantirPermissoesPadraoCompartilhamento {
     param([string]$NomeCompartilhamento)
 
-    foreach ($Sid in @("S-1-1-0", "S-1-5-2", "S-1-5-32-546")) {
+    foreach ($Sid in @("S-1-1-0", "S-1-5-2")) {
         $Contas = @(ObterContasCompartilhamentoPorSid $Sid)
         RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Contas -TipoControle "Allow" -Direito "Full" | Out-Null
     }
+    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    if ($Guest) { RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta @("$env:COMPUTERNAME\$($Guest.Name)") -TipoControle "Allow" -Direito "Full" | Out-Null }
 }
 
 function RestaurarCompartilhamentosTekSoftware {
@@ -1020,9 +1022,11 @@ function GarantirCompartilhamentoTekSoftware {
 
     GarantirPermissoesPadraoCompartilhamento -NomeCompartilhamento "TekSoftware"
 
-    foreach ($Sid in @("S-1-1-0", "S-1-5-2", "S-1-5-32-546")) {
+    foreach ($Sid in @("S-1-1-0", "S-1-5-2")) {
         & icacls.exe $RaizTekSoftware /grant "*$Sid`:(OI)(CI)F" /T /C | Out-Null
     }
+    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    if ($Guest) { & icacls.exe $RaizTekSoftware /grant "*$($Guest.SID)`:(OI)(CI)F" /T /C | Out-Null }
 
     LogMsg "Permissoes do compartilhamento TekSoftware reforcadas."
 }

@@ -126,6 +126,7 @@ function ObterContaPorSid {
 }
 
 function ObterContasCompartilhamentoPorSid {
+    # O usuario Convidado local usa SID terminado em -501; nao confundir com o grupo Convidados (-546).
     param([string]$Sid)
 
     $Contas = @()
@@ -269,10 +270,12 @@ function RestaurarPermissaoCompartilhamento {
 function GarantirPermissoesPadraoCompartilhamento {
     param([string]$NomeCompartilhamento)
 
-    foreach ($Sid in @("S-1-1-0", "S-1-5-2", "S-1-5-32-546")) {
+    foreach ($Sid in @("S-1-1-0", "S-1-5-2")) {
         $Contas = @(ObterContasCompartilhamentoPorSid $Sid)
         RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Contas -TipoControle "Allow" -Direito "Full" | Out-Null
     }
+    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    if ($Guest) { RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta @("$env:COMPUTERNAME\$($Guest.Name)") -TipoControle "Allow" -Direito "Full" | Out-Null }
 }
 
 function RestaurarCompartilhamentosTekSoftware {
