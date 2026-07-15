@@ -363,7 +363,7 @@ if (!(Test-DotNet48)) {
 }
 
 BaixarArquivo `
-    -Url "$RawUrl/TekFarmaInstaller.exe" `
+    -Url "$BaseUrl/TekFarmaInstaller-1.0.5.exe" `
     -DestinoArquivo $GuiExe `
     -Nome "TekFarmaInstaller.exe" `
     -CacheArquivo $GuiCache `
