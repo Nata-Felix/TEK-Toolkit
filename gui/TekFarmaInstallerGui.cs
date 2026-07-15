@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.3.0")]
-[assembly: AssemblyFileVersion("1.0.3.0")]
+[assembly: AssemblyVersion("1.0.4.0")]
+[assembly: AssemblyFileVersion("1.0.4.0")]
 
 namespace TekFarmaInstaller
 {
@@ -51,6 +51,7 @@ namespace TekFarmaInstaller
         private readonly RadioButton iRadio = new RadioButton();
         private readonly RadioButton servidorRadio = new RadioButton();
         private readonly RadioButton terminalRadio = new RadioButton();
+        private readonly CheckBox repairWithoutCrystalCheckBox = new CheckBox();
         private readonly ProgressBar progressBar = new ProgressBar();
         private readonly Label progressLabel = new Label();
         private readonly Label currentStepLabel = new Label();
@@ -237,7 +238,7 @@ namespace TekFarmaInstaller
             Panel choicePanel = new Panel();
             choicePanel.Left = 42;
             choicePanel.Top = 510;
-            choicePanel.Width = 336;
+            choicePanel.Width = 358;
             choicePanel.Height = 54;
             choicePanel.BackColor = Color.White;
             root.Controls.Add(choicePanel);
@@ -245,18 +246,27 @@ namespace TekFarmaInstaller
             Panel versionPanel = new Panel();
             versionPanel.Left = 0;
             versionPanel.Top = 0;
-            versionPanel.Width = 150;
+            versionPanel.Width = 125;
             versionPanel.Height = 54;
             versionPanel.BackColor = Color.White;
             choicePanel.Controls.Add(versionPanel);
 
             Panel profilePanel = new Panel();
-            profilePanel.Left = 165;
+            profilePanel.Left = 132;
             profilePanel.Top = 0;
-            profilePanel.Width = 150;
+            profilePanel.Width = 95;
             profilePanel.Height = 54;
             profilePanel.BackColor = Color.White;
             choicePanel.Controls.Add(profilePanel);
+
+            repairWithoutCrystalCheckBox.Text = "Reparo sem\nCrystal";
+            repairWithoutCrystalCheckBox.Left = 232;
+            repairWithoutCrystalCheckBox.Top = 3;
+            repairWithoutCrystalCheckBox.Width = 124;
+            repairWithoutCrystalCheckBox.Height = 46;
+            repairWithoutCrystalCheckBox.Enabled = false;
+            choicePanel.Controls.Add(repairWithoutCrystalCheckBox);
+            optionToolTip.SetToolTip(repairWithoutCrystalCheckBox, "Instala .NET, Visual C++ e aplica o fix sem remover ou instalar o Crystal Runtime.");
 
             normalRadio.Text = "Versao normal";
             normalRadio.Left = 4;
@@ -475,6 +485,8 @@ namespace TekFarmaInstaller
             iRadio.Enabled = needsVersion;
             servidorRadio.Enabled = needsProfile;
             terminalRadio.Enabled = needsProfile;
+            repairWithoutCrystalCheckBox.Enabled = mode == InstallMode.Crystal;
+            if (mode != InstallMode.Crystal) repairWithoutCrystalCheckBox.Checked = false;
         }
 
         private void InstallerForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -622,10 +634,15 @@ namespace TekFarmaInstaller
             plan.Mode = mode;
             plan.TipoVersao = tipoVersao;
             plan.PerfilTek = perfilTek;
+            bool repairWithoutCrystal = mode == InstallMode.Crystal && repairWithoutCrystalCheckBox.Checked;
+
+            if ((mode == InstallMode.Crystal && !repairWithoutCrystal) || mode == InstallMode.CrystalWin7 || mode == InstallMode.Full || mode == InstallMode.TekFarma)
+            {
+                AddRelease(plan, "CRRuntime_32bit_13_0_39.msi");
+            }
 
             if (mode == InstallMode.Crystal || mode == InstallMode.CrystalWin7 || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
-                AddRelease(plan, "CRRuntime_32bit_13_0_39.msi");
                 AddRelease(plan, "crdb_adoplus.zip");
             }
 
@@ -677,7 +694,7 @@ namespace TekFarmaInstaller
             {
                 plan.ScriptName = "instalar.ps1";
                 plan.Downloads.Add(new DownloadItem(RawUrl + "/instalar.ps1", "instalar.ps1", "instalar.ps1"));
-                plan.ScriptArguments = "-Modo " + ModeToNumber(mode) + " -TipoVersao \"" + tipoVersao + "\"";
+                plan.ScriptArguments = "-Modo " + ModeToNumber(mode) + " -TipoVersao \"" + tipoVersao + "\" -ReparoSemCrystal \"" + (repairWithoutCrystal ? "true" : "false") + "\"";
             }
 
             return plan;
@@ -1099,6 +1116,7 @@ namespace TekFarmaInstaller
                 iRadio.Enabled = false;
                 servidorRadio.Enabled = false;
                 terminalRadio.Enabled = false;
+                repairWithoutCrystalCheckBox.Enabled = false;
             }
             else
             {

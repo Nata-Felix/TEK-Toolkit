@@ -1,6 +1,7 @@
 param(
     [string]$Modo = "3",
-    [string]$TipoVersao = ""
+    [string]$TipoVersao = "",
+    [string]$ReparoSemCrystal = "false"
 )
 
 $Base = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -752,7 +753,7 @@ if ($Modo -eq "4") {
     InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7"
 }
 
-if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
+if ($Modo -eq "2" -or $Modo -eq "3") {
     InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
     InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86"
     InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64"
@@ -760,8 +761,13 @@ if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
 
 if ($Modo -eq "2" -or $Modo -eq "3") {
     FinalizarProcessosTek
-    RemoverCrystalAntigo
-    InstalarCrystalNovo
+    if ($ReparoSemCrystal -ne "true") {
+        RemoverCrystalAntigo
+        InstalarCrystalNovo
+    }
+    else {
+        LogMsg "Reparo sem Crystal selecionado: desinstalacao e instalacao do Crystal Runtime ignoradas."
+    }
     AplicarFixCrystal
 }
 
