@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.4.0")]
-[assembly: AssemblyFileVersion("1.0.4.0")]
+[assembly: AssemblyVersion("1.0.5.0")]
+[assembly: AssemblyFileVersion("1.0.5.0")]
 
 namespace TekFarmaInstaller
 {
@@ -55,10 +55,11 @@ namespace TekFarmaInstaller
         private readonly ProgressBar progressBar = new ProgressBar();
         private readonly Label progressLabel = new Label();
         private readonly Label currentStepLabel = new Label();
-        private readonly TextBox logBox = new TextBox();
+        private readonly RichTextBox logBox = new RichTextBox();
         private readonly Button installButton = new Button();
         private readonly Button cancelButton = new Button();
         private readonly Button closeButton = new Button();
+        private readonly Button copyLogButton = new Button();
         private readonly CheckBox closeWhenDoneCheckBox = new CheckBox();
         private readonly Label statusLabel = new Label();
         private readonly PictureBox logoBox = new PictureBox();
@@ -364,12 +365,26 @@ namespace TekFarmaInstaller
             logBox.Height = 182;
             logBox.Multiline = true;
             logBox.ReadOnly = true;
-            logBox.ScrollBars = ScrollBars.Vertical;
+            logBox.ScrollBars = RichTextBoxScrollBars.Vertical;
             logBox.Font = new Font("Consolas", 9.75F, FontStyle.Regular, GraphicsUnit.Point);
             logBox.BackColor = Color.White;
             logBox.ForeColor = Color.FromArgb(24, 30, 38);
             logBox.BorderStyle = BorderStyle.FixedSingle;
             root.Controls.Add(logBox);
+
+            copyLogButton.Text = "Copiar log";
+            copyLogButton.Left = 862;
+            copyLogButton.Top = 286;
+            copyLogButton.Width = 118;
+            copyLogButton.Height = 30;
+            copyLogButton.FlatStyle = FlatStyle.Flat;
+            copyLogButton.FlatAppearance.BorderColor = border;
+            copyLogButton.BackColor = Color.White;
+            copyLogButton.ForeColor = Color.FromArgb(180, 32, 32);
+            copyLogButton.Enabled = false;
+            copyLogButton.Visible = false;
+            copyLogButton.Click += delegate { CopyErrorLog(); };
+            root.Controls.Add(copyLogButton);
         }
 
         private void BuildFooter(Control root)
@@ -506,6 +521,8 @@ namespace TekFarmaInstaller
             progressBar.Value = 0;
             progressLabel.Text = "0% concluido";
             logBox.Clear();
+            copyLogButton.Enabled = false;
+            copyLogButton.Visible = false;
             statusLabel.Text = "Preparando instalacao";
             currentStepLabel.Text = "Preparando arquivos...";
             installButton.Enabled = false;
@@ -1096,9 +1113,38 @@ namespace TekFarmaInstaller
                 return;
             }
 
+            bool isError = text.IndexOf("[ERRO]", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("ERRO:", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            logBox.SelectionStart = logBox.TextLength;
+            logBox.SelectionLength = 0;
+            logBox.SelectionColor = isError ? Color.FromArgb(200, 30, 30) : Color.FromArgb(24, 30, 38);
             logBox.AppendText(text + Environment.NewLine);
+            logBox.SelectionColor = Color.FromArgb(24, 30, 38);
             logBox.SelectionStart = logBox.TextLength;
             logBox.ScrollToCaret();
+
+            if (isError)
+            {
+                copyLogButton.Visible = true;
+                copyLogButton.Enabled = true;
+            }
+        }
+
+        private void CopyErrorLog()
+        {
+            if (String.IsNullOrWhiteSpace(logBox.Text)) return;
+
+            try
+            {
+                Clipboard.SetText(logBox.Text);
+                statusLabel.Text = "Log copiado para a area de transferencia";
+            }
+            catch (Exception ex)
+            {
+                statusLabel.Text = "Nao foi possivel copiar o log";
+                AppendLog("[ERRO] Falha ao copiar log: " + ex.Message);
+            }
         }
 
         private void SetInputsEnabled(bool enabled)
