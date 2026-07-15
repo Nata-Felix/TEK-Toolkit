@@ -749,14 +749,14 @@ if ($Modo -eq "1" -or $Modo -eq "3") {
 }
 
 if ($Modo -eq "4") {
-    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
-    InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7"
+    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline" | Out-Null
+    InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7" | Out-Null
 }
 
 if ($Modo -eq "2" -or $Modo -eq "3") {
-    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
-    InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86"
-    InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64"
+    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline" | Out-Null
+    InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86" | Out-Null
+    InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64" | Out-Null
 }
 
 if ($Modo -eq "2" -or $Modo -eq "3") {
@@ -768,7 +768,13 @@ if ($Modo -eq "2" -or $Modo -eq "3") {
     else {
         LogMsg "Reparo sem Crystal selecionado: desinstalacao e instalacao do Crystal Runtime ignoradas."
     }
-    AplicarFixCrystal
+
+    if ($ReparoSemCrystal -eq "true" -and !(Test-Path $DestinoCrystal)) {
+        LogMsg "AVISO: Pasta do Crystal nao encontrada. Aplicacao do crdb_adoplus ignorada no reparo sem Crystal."
+    }
+    else {
+        AplicarFixCrystal
+    }
 }
 
 LogMsg "====================================="
