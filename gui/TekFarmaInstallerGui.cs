@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.5.0")]
-[assembly: AssemblyFileVersion("1.0.5.0")]
+[assembly: AssemblyVersion("1.0.6.0")]
+[assembly: AssemblyFileVersion("1.0.6.0")]
 
 namespace TekFarmaInstaller
 {
@@ -1021,6 +1021,7 @@ namespace TekFarmaInstaller
 
             using (Process process = new Process())
             {
+                bool processReportedError = false;
                 process.StartInfo = psi;
                 process.EnableRaisingEvents = true;
                 process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
@@ -1034,6 +1035,7 @@ namespace TekFarmaInstaller
                 {
                     if (!String.IsNullOrEmpty(e.Data))
                     {
+                        processReportedError = true;
                         AppendLog("[ERRO] " + e.Data);
                     }
                 };
@@ -1061,11 +1063,13 @@ namespace TekFarmaInstaller
                     Thread.Sleep(250);
                 }
 
+                process.WaitForExit();
+
                 AppendLog("[INFO] PowerShell finalizado. ExitCode: " + process.ExitCode);
 
-                if (process.ExitCode != 0)
+                if (process.ExitCode != 0 || processReportedError)
                 {
-                    throw new InvalidOperationException("O script PowerShell terminou com ExitCode " + process.ExitCode + ".");
+                    throw new InvalidOperationException("O script PowerShell informou erro (ExitCode " + process.ExitCode + ").");
                 }
             }
 

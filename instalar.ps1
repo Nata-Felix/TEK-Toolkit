@@ -53,9 +53,9 @@ function InstalarExe {
         return $false
     }
 
-    Unblock-File $Caminho -ErrorAction SilentlyContinue
+    RemoverBloqueioArquivo $Caminho
 
-    if ([string]::IsNullOrWhiteSpace($Argumentos)) {
+    if (Test-TextoVazio $Argumentos) {
         $Processo = Start-Process -FilePath $Caminho -Wait -PassThru
     }
     else {
@@ -86,7 +86,7 @@ function ObterProcessosTek {
 function NormalizarCaminho {
     param([string]$Caminho)
 
-    if ([string]::IsNullOrWhiteSpace($Caminho)) {
+    if (Test-TextoVazio $Caminho) {
         return ""
     }
 
@@ -107,7 +107,7 @@ function Test-CaminhoDentroOuIgual {
     $BaseNormalizada = NormalizarCaminho $BasePath
     $PathNormalizado = NormalizarCaminho $Path
 
-    if ([string]::IsNullOrWhiteSpace($BaseNormalizada) -or [string]::IsNullOrWhiteSpace($PathNormalizado)) {
+    if ((Test-TextoVazio $BaseNormalizada) -or (Test-TextoVazio $PathNormalizado)) {
         return $false
     }
 
@@ -133,7 +133,7 @@ function ObterContasCompartilhamentoPorSid {
     $Contas = @()
     $Traduzida = ObterContaPorSid $Sid
 
-    if (![string]::IsNullOrWhiteSpace($Traduzida)) {
+    if (!(Test-TextoVazio $Traduzida)) {
         $Contas += $Traduzida
     }
 
@@ -152,7 +152,7 @@ function ObterContasCompartilhamentoPorSid {
         }
     }
 
-    @($Contas | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    @($Contas | Where-Object { !(Test-TextoVazio $_) } | Select-Object -Unique)
 }
 
 function FecharArquivosSmbTekSoftware {
@@ -247,7 +247,7 @@ function RestaurarPermissaoCompartilhamento {
 
     $UltimoErro = ""
 
-    foreach ($ContaAtual in @($Conta | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+    foreach ($ContaAtual in @($Conta | Where-Object { !(Test-TextoVazio $_) } | Select-Object -Unique)) {
         try {
             if ($TipoControle -eq "Deny") {
                 Block-SmbShareAccess -Name $NomeCompartilhamento -AccountName $ContaAtual -Force -ErrorAction Stop | Out-Null
@@ -275,8 +275,20 @@ function GarantirPermissoesPadraoCompartilhamento {
         $Contas = @(ObterContasCompartilhamentoPorSid $Sid)
         RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Contas -TipoControle "Allow" -Direito "Full" | Out-Null
     }
-    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    $Guest = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
     if ($Guest) { RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta @("$env:COMPUTERNAME\$($Guest.Name)") -TipoControle "Allow" -Direito "Full" | Out-Null }
+}
+
+function Test-TextoVazio {
+    param([object]$Valor)
+    return ($null -eq $Valor -or [string]::IsNullOrEmpty(([string]$Valor).Trim()))
+}
+
+function RemoverBloqueioArquivo {
+    param([string]$Caminho)
+    if (Get-Command Unblock-File -ErrorAction SilentlyContinue) {
+        Unblock-File -LiteralPath $Caminho -ErrorAction SilentlyContinue
+    }
 }
 
 function RestaurarCompartilhamentosTekSoftware {
@@ -302,7 +314,7 @@ function RestaurarCompartilhamentosTekSoftware {
                 Path = $Share.Path
             }
 
-            if (![string]::IsNullOrWhiteSpace($Share.Description)) {
+            if (!(Test-TextoVazio $Share.Description)) {
                 $Parametros.Description = $Share.Description
             }
 
@@ -414,7 +426,7 @@ function ExtrairArquivoVersaoZipDotNet {
         foreach ($Entrada in $ArquivoZip.Entries) {
             $Relativo = $Entrada.FullName -replace "/", "\"
 
-            if ([string]::IsNullOrWhiteSpace($Relativo)) {
+            if (Test-TextoVazio $Relativo) {
                 continue
             }
 
@@ -424,7 +436,7 @@ function ExtrairArquivoVersaoZipDotNet {
                 throw "Entrada fora do destino permitida: $($Entrada.FullName)"
             }
 
-            if ([string]::IsNullOrWhiteSpace($Entrada.Name)) {
+            if (Test-TextoVazio $Entrada.Name) {
                 New-Item -ItemType Directory -Path $DestinoEntrada -Force | Out-Null
                 continue
             }
@@ -546,7 +558,7 @@ function AtualizarVersaoTekFarma {
         exit 1
     }
 
-    Unblock-File $Pacote -ErrorAction SilentlyContinue
+    RemoverBloqueioArquivo $Pacote
 
     LogMsg "Pacote encontrado: $Pacote"
     LogMsg "Garantindo que nao exista processo Tek* ativo antes da extracao..."
@@ -668,7 +680,7 @@ function InstalarCrystalNovo {
         exit 1
     }
 
-    Unblock-File $CrystalMsi -ErrorAction SilentlyContinue
+    RemoverBloqueioArquivo $CrystalMsi
 
     $ArgsCrystal = '/i "' + $CrystalMsi + '" /qn /norestart /L*v "' + $CrystalLog + '"'
 
@@ -703,9 +715,12 @@ function AplicarFixCrystal {
     New-Item -ItemType Directory -Path $TempFix -Force | Out-Null
 
     try {
-        Unblock-File $FixZip -ErrorAction SilentlyContinue
+        RemoverBloqueioArquivo $FixZip
 
-        Expand-Archive -LiteralPath $FixZip -DestinationPath $TempFix -Force
+        $CodigoExtracao = ExtrairArquivoVersaoCompat -Pacote $FixZip -Destino $TempFix
+        if ($CodigoExtracao -ne 0) {
+            throw "Nao foi possivel extrair crdb_adoplus.zip."
+        }
 
         LogMsg "Copiando arquivos do fix para: $DestinoCrystal"
 
@@ -739,7 +754,7 @@ if (!(Test-Admin)) {
     exit 1
 }
 
-if ($Modo -notin @("1", "2", "3", "4")) {
+if (!(@("1", "2", "3", "4") -contains $Modo)) {
     LogMsg "ERRO: Modo invalido: $Modo"
     exit 1
 }
