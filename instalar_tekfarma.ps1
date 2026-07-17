@@ -1,6 +1,7 @@
 param(
     [string]$TipoVersao = "",
-    [string]$PerfilTek = ""
+    [string]$PerfilTek = "",
+    [string]$CompatibilidadeWin7 = "false"
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,10 @@ $CrystalUninstallLog = Join-Path $Base "crystal_uninstall.log"
 
 $Net48 = Join-Path $Base "dotnet48.exe"
 $VCx86 = Join-Path $Base "VC_redist.x86.exe"
+$VCx86Win7 = Join-Path $Base "VC_redist.x86.Win7.exe"
 $VCx64 = Join-Path $Base "VC_redist.x64.exe"
+$UcrtWin7x86 = Join-Path $Base "Windows6.1-KB2999226-x86.msu"
+$UcrtWin7x64 = Join-Path $Base "Windows6.1-KB2999226-x64.msu"
 $CrystalMsi = Join-Path $Base "CRRuntime_32bit_13_0_39.msi"
 $FixZip = Join-Path $Base "crdb_adoplus.zip"
 
@@ -25,10 +29,21 @@ $BancoTekFarmaZip = Join-Path $Base "TEKFARMA(NOV-2020).zip"
 
 $RaizTekSoftware = "C:\TekSoftware"
 $DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
-$DestinoCrystal = "C:\Program Files (x86)\SAP BusinessObjects\Crystal Reports for .NET Framework 4.0\Common\SAP BusinessObjects Enterprise XI 4.0\win32_x86"
+$ProgramFilesX86 = ${env:ProgramFiles(x86)}
+if ([string]::IsNullOrEmpty($ProgramFilesX86)) {
+    $ProgramFilesX86 = $env:ProgramFiles
+}
+$DestinoCrystal = Join-Path $ProgramFilesX86 "SAP BusinessObjects\Crystal Reports for .NET Framework 4.0\Common\SAP BusinessObjects Enterprise XI 4.0\win32_x86"
 $DestinoFirebird = "C:\Program Files\Firebird\Firebird_2_5"
 $TempFix = "C:\Windows\Temp\crdb_adoplus_fix"
 $ServidorShare = "\\SERVIDOR\TekSoftware"
+$VersaoWindows = [Environment]::OSVersion.Version
+$EhWindows7 = ($VersaoWindows.Major -eq 6 -and $VersaoWindows.Minor -eq 1)
+$Sistema64Bits = ($env:PROCESSOR_ARCHITEW6432 -eq "AMD64" -or $env:PROCESSOR_ARCHITECTURE -eq "AMD64")
+$PastaSistemaX86 = Join-Path $env:WINDIR "System32"
+if ($Sistema64Bits) {
+    $PastaSistemaX86 = Join-Path $env:WINDIR "SysWOW64"
+}
 
 function LogMsg {
     param([string]$Texto)
@@ -36,6 +51,21 @@ function LogMsg {
     $Linha = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Texto"
     Add-Content -Path $Log -Value $Linha
     Write-Host $Linha
+}
+
+function Test-TextoVazio {
+    param([string]$Texto)
+    return ($null -eq $Texto -or $Texto.Trim().Length -eq 0)
+}
+
+function RemoverBloqueioArquivo {
+    param([string]$Caminho)
+
+    try {
+        Remove-Item -LiteralPath ($Caminho + ":Zone.Identifier") -Force -ErrorAction SilentlyContinue
+    }
+    catch {
+    }
 }
 
 function Test-Admin {
@@ -164,7 +194,7 @@ function InstalarExe {
     }
 
     try {
-        Unblock-File $Caminho -ErrorAction SilentlyContinue
+        RemoverBloqueioArquivo $Caminho
 
         if ([string]::IsNullOrWhiteSpace($Argumentos)) {
             $Processo = Start-Process -FilePath $Caminho -Wait -PassThru
@@ -359,8 +389,68 @@ function GarantirPermissoesPadraoCompartilhamento {
         $Contas = @(ObterContasCompartilhamentoPorSid $Sid)
         RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta $Contas -TipoControle "Allow" -Direito "Full" | Out-Null
     }
-    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    $Guest = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
     if ($Guest) { RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta @("$env:COMPUTERNAME\$($Guest.Name)") -TipoControle "Allow" -Direito "Full" | Out-Null }
+}
+
+function InstalarAtualizacaoUcrtWindows7 {
+    if (!$EhWindows7) {
+        return $true
+    }
+
+    $UcrtBase = Join-Path $PastaSistemaX86 "ucrtbase.dll"
+    if (Test-Path $UcrtBase) {
+        LogMsg "Universal CRT do Windows 7 ja esta instalado."
+        return $true
+    }
+
+    if ($VersaoWindows.Build -lt 7601) {
+        LogMsg "ERRO: Windows 7 SP1 e obrigatorio para instalar o Crystal Runtime."
+        return $false
+    }
+
+    $Pacote = $UcrtWin7x86
+    if ($Sistema64Bits) {
+        $Pacote = $UcrtWin7x64
+    }
+
+    if (!(Test-Path $Pacote)) {
+        LogMsg "ERRO: Atualizacao KB2999226 nao encontrada: $Pacote"
+        return $false
+    }
+
+    LogMsg "Instalando Universal CRT KB2999226 para Windows 7: $Pacote"
+    RemoverBloqueioArquivo $Pacote
+
+    try {
+        $Argumentos = '"' + $Pacote + '" /quiet /norestart'
+        $Processo = Start-Process -FilePath "wusa.exe" -ArgumentList $Argumentos -Wait -PassThru
+        LogMsg "KB2999226 finalizada. ExitCode: $($Processo.ExitCode)"
+        return ($Processo.ExitCode -eq 0 -or $Processo.ExitCode -eq 3010 -or $Processo.ExitCode -eq 2359302)
+    }
+    catch {
+        LogMsg "ERRO ao instalar a KB2999226: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function ValidarRuntimeCrystal {
+    $ArquivosObrigatorios = @(
+        (Join-Path $DestinoCrystal "crpe32.dll"),
+        (Join-Path $PastaSistemaX86 "ucrtbase.dll"),
+        (Join-Path $PastaSistemaX86 "vcruntime140.dll"),
+        (Join-Path $PastaSistemaX86 "msvcp140.dll")
+    )
+
+    foreach ($ArquivoObrigatorio in $ArquivosObrigatorios) {
+        if (!(Test-Path $ArquivoObrigatorio)) {
+            LogMsg "ERRO: Dependencia do Crystal ausente: $ArquivoObrigatorio"
+            return $false
+        }
+    }
+
+    LogMsg "Crystal Runtime 13.0.39 e dependencias nativas encontrados."
+    return $true
 }
 
 function RestaurarCompartilhamentosTekSoftware {
@@ -439,9 +529,9 @@ function ExtrairZip {
     }
 
     LogMsg "Extraindo $Nome para $Destino"
-    Unblock-File $Zip -ErrorAction SilentlyContinue
-    Expand-Archive -LiteralPath $Zip -DestinationPath $Destino -Force
-    return $true
+    RemoverBloqueioArquivo $Zip
+    $CodigoExtracao = ExtrairArquivoVersaoCompat -Pacote $Zip -Destino $Destino
+    return ($CodigoExtracao -eq 0)
 }
 
 function ExtrairArquivoVersaoZipDotNet {
@@ -579,7 +669,7 @@ function AtualizarVersaoTekFarmaServidor {
         New-Item -ItemType Directory -Path $DestinoSistema -Force | Out-Null
     }
 
-    Unblock-File $Pacote -ErrorAction SilentlyContinue
+    RemoverBloqueioArquivo $Pacote
 
     $CodigoExtracao = ExtrairArquivoVersaoCompat -Pacote $Pacote -Destino $DestinoSistema
     LogMsg "Extracao da versao finalizada. ExitCode: $CodigoExtracao"
@@ -841,7 +931,7 @@ function InstalarCrystalNovo {
         return $false
     }
 
-    Unblock-File $CrystalMsi -ErrorAction SilentlyContinue
+    RemoverBloqueioArquivo $CrystalMsi
     $ArgsCrystal = '/i "' + $CrystalMsi + '" /qn /norestart /L*v "' + $CrystalLog + '"'
 
     try {
@@ -873,8 +963,11 @@ function AplicarFixCrystal {
     New-Item -ItemType Directory -Path $TempFix -Force | Out-Null
 
     try {
-        Unblock-File $FixZip -ErrorAction SilentlyContinue
-        Expand-Archive -LiteralPath $FixZip -DestinationPath $TempFix -Force
+        RemoverBloqueioArquivo $FixZip
+        $CodigoExtracao = ExtrairArquivoVersaoCompat -Pacote $FixZip -Destino $TempFix
+        if ($CodigoExtracao -ne 0) {
+            throw "Nao foi possivel extrair crdb_adoplus.zip."
+        }
         Copy-Item -Path (Join-Path $TempFix "*") -Destination $DestinoCrystal -Recurse -Force -ErrorAction Stop
         LogMsg "Fix crdb_adoplus aplicado com sucesso."
         return $true
@@ -892,15 +985,35 @@ function AplicarFixCrystal {
 
 function InstalarDependenciasFull {
     ExecutarPasso ".NET Framework 4.8" {
-        InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline" | Out-Null
+        if (!(InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline")) {
+            LogMsg "ERRO: Falha ao instalar o .NET Framework 4.8."
+            exit 1
+        }
     }
 
-    ExecutarPasso "Visual C++ Redistributable x86" {
-        InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86" | Out-Null
-    }
+    if ($CompatibilidadeWin7 -eq "true") {
+        ExecutarPasso "Universal CRT KB2999226" {
+            if (!(InstalarAtualizacaoUcrtWindows7)) {
+                LogMsg "ERRO: Falha ao instalar a KB2999226."
+                exit 1
+            }
+        }
 
-    ExecutarPasso "Visual C++ Redistributable x64" {
-        InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64" | Out-Null
+        ExecutarPasso "Visual C++ Redistributable x86 para Windows 7" {
+            if (!(InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7")) {
+                LogMsg "ERRO: Falha ao instalar o Visual C++ x86 para Windows 7."
+                exit 1
+            }
+        }
+    }
+    else {
+        ExecutarPasso "Visual C++ Redistributable x86" {
+            InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86" | Out-Null
+        }
+
+        ExecutarPasso "Visual C++ Redistributable x64" {
+            InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64" | Out-Null
+        }
     }
 
     ExecutarPasso "Remover Crystal antigo" {
@@ -908,11 +1021,21 @@ function InstalarDependenciasFull {
     }
 
     ExecutarPasso "Instalar Crystal novo" {
-        InstalarCrystalNovo | Out-Null
+        if (!(InstalarCrystalNovo)) {
+            LogMsg "ERRO: Falha ao instalar o Crystal Runtime 13.0.39."
+            exit 1
+        }
     }
 
     ExecutarPasso "Aplicar fix Crystal" {
         AplicarFixCrystal | Out-Null
+    }
+
+    ExecutarPasso "Validar Crystal Runtime" {
+        if (!(ValidarRuntimeCrystal)) {
+            LogMsg "ERRO: O Crystal Runtime nao possui todas as dependencias necessarias. Reinicie o Windows e execute novamente."
+            exit 1
+        }
     }
 }
 
@@ -1025,7 +1148,7 @@ function GarantirCompartilhamentoTekSoftware {
     foreach ($Sid in @("S-1-1-0", "S-1-5-2")) {
         & icacls.exe $RaizTekSoftware /grant "*$Sid`:(OI)(CI)F" /T /C | Out-Null
     }
-    $Guest = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
+    $Guest = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
     if ($Guest) { & icacls.exe $RaizTekSoftware /grant "*$($Guest.SID)`:(OI)(CI)F" /T /C | Out-Null }
 
     LogMsg "Permissoes do compartilhamento TekSoftware reforcadas."
@@ -1292,6 +1415,7 @@ LogMsg "INSTALADOR TEKFARMA SERVIDOR / TERMINAL"
 LogMsg "====================================="
 LogMsg "PerfilTek recebido: $PerfilTek"
 LogMsg "TipoVersao recebido: $TipoVersao"
+LogMsg "Compatibilidade Windows 7: $CompatibilidadeWin7"
 LogMsg "Base: $Base"
 
 if (!(Test-Admin)) {
@@ -1299,12 +1423,12 @@ if (!(Test-Admin)) {
     exit 1
 }
 
-if ($TipoVersao -notin @("normal", "i")) {
+if (!(@("normal", "i") -contains $TipoVersao)) {
     LogMsg "ERRO: TipoVersao invalido: $TipoVersao"
     exit 1
 }
 
-if ($PerfilTek -notin @("servidor", "terminal")) {
+if (!(@("servidor", "terminal") -contains $PerfilTek)) {
     LogMsg "ERRO: PerfilTek invalido: $PerfilTek"
     exit 1
 }

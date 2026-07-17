@@ -1,7 +1,8 @@
 param(
     [string]$Modo = "3",
     [string]$TipoVersao = "",
-    [string]$ReparoSemCrystal = "false"
+    [string]$ReparoSemCrystal = "false",
+    [string]$CompatibilidadeWin7 = "false"
 )
 
 $Base = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -14,13 +15,26 @@ $Net48 = Join-Path $Base "dotnet48.exe"
 $VCx86 = Join-Path $Base "VC_redist.x86.exe"
 $VCx86Win7 = Join-Path $Base "VC_redist.x86.Win7.exe"
 $VCx64 = Join-Path $Base "VC_redist.x64.exe"
+$UcrtWin7x86 = Join-Path $Base "Windows6.1-KB2999226-x86.msu"
+$UcrtWin7x64 = Join-Path $Base "Windows6.1-KB2999226-x64.msu"
 $CrystalMsi = Join-Path $Base "CRRuntime_32bit_13_0_39.msi"
 $FixZip = Join-Path $Base "crdb_adoplus.zip"
 
 $RaizTekSoftware = "C:\TekSoftware"
 $DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
-$DestinoCrystal = "C:\Program Files (x86)\SAP BusinessObjects\Crystal Reports for .NET Framework 4.0\Common\SAP BusinessObjects Enterprise XI 4.0\win32_x86"
+$ProgramFilesX86 = ${env:ProgramFiles(x86)}
+if ([string]::IsNullOrEmpty($ProgramFilesX86)) {
+    $ProgramFilesX86 = $env:ProgramFiles
+}
+$DestinoCrystal = Join-Path $ProgramFilesX86 "SAP BusinessObjects\Crystal Reports for .NET Framework 4.0\Common\SAP BusinessObjects Enterprise XI 4.0\win32_x86"
 $TempFix = "C:\Windows\Temp\crdb_adoplus_fix"
+$VersaoWindows = [Environment]::OSVersion.Version
+$EhWindows7 = ($VersaoWindows.Major -eq 6 -and $VersaoWindows.Minor -eq 1)
+$Sistema64Bits = ($env:PROCESSOR_ARCHITEW6432 -eq "AMD64" -or $env:PROCESSOR_ARCHITECTURE -eq "AMD64")
+$PastaSistemaX86 = Join-Path $env:WINDIR "System32"
+if ($Sistema64Bits) {
+    $PastaSistemaX86 = Join-Path $env:WINDIR "SysWOW64"
+}
 
 function LogMsg {
     param([string]$Texto)
@@ -277,6 +291,89 @@ function GarantirPermissoesPadraoCompartilhamento {
     }
     $Guest = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue | Where-Object { $_.SID -match "-501$" } | Select-Object -First 1
     if ($Guest) { RestaurarPermissaoCompartilhamento -NomeCompartilhamento $NomeCompartilhamento -Conta @("$env:COMPUTERNAME\$($Guest.Name)") -TipoControle "Allow" -Direito "Full" | Out-Null }
+}
+
+function InstalarAtualizacaoUcrtWindows7 {
+    if (!$EhWindows7) {
+        return $true
+    }
+
+    $UcrtBase = Join-Path $PastaSistemaX86 "ucrtbase.dll"
+    if (Test-Path $UcrtBase) {
+        LogMsg "Universal CRT do Windows 7 ja esta instalado."
+        return $true
+    }
+
+    if ($VersaoWindows.Build -lt 7601) {
+        LogMsg "ERRO: Windows 7 SP1 e obrigatorio para instalar o Crystal Runtime."
+        return $false
+    }
+
+    $Pacote = $UcrtWin7x86
+    if ($Sistema64Bits) {
+        $Pacote = $UcrtWin7x64
+    }
+
+    LogMsg "====================================="
+    LogMsg "Instalando Universal CRT KB2999226 para Windows 7..."
+    LogMsg "Arquivo: $Pacote"
+
+    if (!(Test-Path $Pacote)) {
+        LogMsg "ERRO: Atualizacao KB2999226 nao encontrada: $Pacote"
+        return $false
+    }
+
+    RemoverBloqueioArquivo $Pacote
+
+    try {
+        $Argumentos = '"' + $Pacote + '" /quiet /norestart'
+        $Processo = Start-Process -FilePath "wusa.exe" -ArgumentList $Argumentos -Wait -PassThru
+        LogMsg "KB2999226 finalizada. ExitCode: $($Processo.ExitCode)"
+
+        if ($Processo.ExitCode -eq 0 -or $Processo.ExitCode -eq 3010 -or $Processo.ExitCode -eq 2359302) {
+            if ($Processo.ExitCode -eq 3010) {
+                LogMsg "AVISO: O Windows solicitou reinicializacao para concluir a KB2999226."
+            }
+            return $true
+        }
+
+        LogMsg "ERRO: Nao foi possivel instalar a KB2999226. ExitCode: $($Processo.ExitCode)"
+        return $false
+    }
+    catch {
+        LogMsg "ERRO ao instalar a KB2999226: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function ValidarRuntimeCrystal {
+    LogMsg "====================================="
+    LogMsg "Validando Crystal Runtime 32 bits..."
+
+    $ArquivosObrigatorios = @(
+        (Join-Path $DestinoCrystal "crpe32.dll"),
+        (Join-Path $PastaSistemaX86 "ucrtbase.dll"),
+        (Join-Path $PastaSistemaX86 "vcruntime140.dll"),
+        (Join-Path $PastaSistemaX86 "msvcp140.dll")
+    )
+
+    $ArquivosAusentes = @()
+    foreach ($ArquivoObrigatorio in $ArquivosObrigatorios) {
+        if (!(Test-Path $ArquivoObrigatorio)) {
+            $ArquivosAusentes += $ArquivoObrigatorio
+        }
+    }
+
+    if ($ArquivosAusentes.Count -gt 0) {
+        foreach ($ArquivoAusente in $ArquivosAusentes) {
+            LogMsg "ERRO: Dependencia ausente: $ArquivoAusente"
+        }
+        LogMsg "ERRO: O crpe32.dll nao podera ser carregado. Reinicie o Windows e execute o instalador novamente."
+        return $false
+    }
+
+    LogMsg "Crystal Runtime 13.0.39 e dependencias nativas encontrados."
+    return $true
 }
 
 function Test-TextoVazio {
@@ -746,6 +843,7 @@ LogMsg "INSTALADOR FINAL - TEKFARMA / CRYSTAL"
 LogMsg "====================================="
 LogMsg "Modo recebido: $Modo"
 LogMsg "TipoVersao recebido: $TipoVersao"
+LogMsg "Compatibilidade Windows 7: $CompatibilidadeWin7"
 LogMsg "Base: $Base"
 
 if (!(Test-Admin)) {
@@ -763,18 +861,35 @@ if ($Modo -eq "1" -or $Modo -eq "3") {
     AtualizarVersaoTekFarma -TipoVersao $TipoVersao
 }
 
-if ($Modo -eq "4") {
-    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline" | Out-Null
-    InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7" | Out-Null
+if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
+    if (!(InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline")) {
+        LogMsg "ERRO: Falha ao instalar o .NET Framework 4.8."
+        exit 1
+    }
+
+    $UsarCompatibilidadeWin7 = ($Modo -eq "4" -or $CompatibilidadeWin7 -eq "true")
+    if ($UsarCompatibilidadeWin7) {
+        if (!(InstalarAtualizacaoUcrtWindows7)) {
+            exit 1
+        }
+        if (!(InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7")) {
+            LogMsg "ERRO: Falha ao instalar o Visual C++ x86 para Windows 7."
+            exit 1
+        }
+    }
+    else {
+        if (!(InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86")) {
+            LogMsg "ERRO: Falha ao instalar o Visual C++ x86."
+            exit 1
+        }
+        if (!(InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64")) {
+            LogMsg "ERRO: Falha ao instalar o Visual C++ x64."
+            exit 1
+        }
+    }
 }
 
-if ($Modo -eq "2" -or $Modo -eq "3") {
-    InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline" | Out-Null
-    InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86" | Out-Null
-    InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64" | Out-Null
-}
-
-if ($Modo -eq "2" -or $Modo -eq "3") {
+if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
     FinalizarProcessosTek
     if ($ReparoSemCrystal -ne "true") {
         RemoverCrystalAntigo
@@ -789,6 +904,10 @@ if ($Modo -eq "2" -or $Modo -eq "3") {
     }
     else {
         AplicarFixCrystal
+    }
+
+    if (!(ValidarRuntimeCrystal)) {
+        exit 1
     }
 }
 

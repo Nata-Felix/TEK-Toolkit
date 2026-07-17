@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.6.0")]
-[assembly: AssemblyFileVersion("1.0.6.0")]
+[assembly: AssemblyVersion("1.0.7.0")]
+[assembly: AssemblyFileVersion("1.0.7.0")]
 
 namespace TekFarmaInstaller
 {
@@ -652,6 +652,7 @@ namespace TekFarmaInstaller
             plan.TipoVersao = tipoVersao;
             plan.PerfilTek = perfilTek;
             bool repairWithoutCrystal = mode == InstallMode.Crystal && repairWithoutCrystalCheckBox.Checked;
+            bool windows7Compatibility = mode == InstallMode.CrystalWin7 || IsWindows7();
 
             if ((mode == InstallMode.Crystal && !repairWithoutCrystal) || mode == InstallMode.CrystalWin7 || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
@@ -663,17 +664,27 @@ namespace TekFarmaInstaller
                 AddRelease(plan, "crdb_adoplus.zip");
             }
 
-            if (mode == InstallMode.Crystal || mode == InstallMode.Full || mode == InstallMode.TekFarma)
+            if (mode == InstallMode.Crystal || mode == InstallMode.CrystalWin7 || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
                 AddRelease(plan, "dotnet48.exe");
-                AddRelease(plan, "VC_redist.x86.exe");
-                AddRelease(plan, "VC_redist.x64.exe");
-            }
 
-            if (mode == InstallMode.CrystalWin7)
-            {
-                AddRelease(plan, "dotnet48.exe");
-                AddRelease(plan, "VC_redist.x86.Win7.exe");
+                if (windows7Compatibility)
+                {
+                    AddRelease(plan, "VC_redist.x86.Win7.exe");
+                    if (Environment.Is64BitOperatingSystem)
+                    {
+                        AddRelease(plan, "Windows6.1-KB2999226-x64.msu");
+                    }
+                    else
+                    {
+                        AddRelease(plan, "Windows6.1-KB2999226-x86.msu");
+                    }
+                }
+                else
+                {
+                    AddRelease(plan, "VC_redist.x86.exe");
+                    AddRelease(plan, "VC_redist.x64.exe");
+                }
             }
 
             if (mode == InstallMode.TekFarma && perfilTek == "servidor")
@@ -705,13 +716,13 @@ namespace TekFarmaInstaller
             {
                 plan.ScriptName = "instalar_tekfarma.ps1";
                 plan.Downloads.Add(new DownloadItem(RawUrl + "/instalar_tekfarma.ps1", "instalar_tekfarma.ps1", "instalar_tekfarma.ps1"));
-                plan.ScriptArguments = "-TipoVersao \"" + tipoVersao + "\" -PerfilTek \"" + perfilTek + "\"";
+                plan.ScriptArguments = "-TipoVersao \"" + tipoVersao + "\" -PerfilTek \"" + perfilTek + "\" -CompatibilidadeWin7 \"" + (windows7Compatibility ? "true" : "false") + "\"";
             }
             else
             {
                 plan.ScriptName = "instalar.ps1";
                 plan.Downloads.Add(new DownloadItem(RawUrl + "/instalar.ps1", "instalar.ps1", "instalar.ps1"));
-                plan.ScriptArguments = "-Modo " + ModeToNumber(mode) + " -TipoVersao \"" + tipoVersao + "\" -ReparoSemCrystal \"" + (repairWithoutCrystal ? "true" : "false") + "\"";
+                plan.ScriptArguments = "-Modo " + ModeToNumber(mode) + " -TipoVersao \"" + tipoVersao + "\" -ReparoSemCrystal \"" + (repairWithoutCrystal ? "true" : "false") + "\" -CompatibilidadeWin7 \"" + (windows7Compatibility ? "true" : "false") + "\"";
             }
 
             return plan;
@@ -729,6 +740,12 @@ namespace TekFarmaInstaller
             if (mode == InstallMode.Full) return "3";
             if (mode == InstallMode.CrystalWin7) return "4";
             return "1";
+        }
+
+        private static bool IsWindows7()
+        {
+            Version version = Environment.OSVersion.Version;
+            return version.Major == 6 && version.Minor == 1;
         }
 
         private TimeSpan GetDownloadCacheAge(DownloadItem item)
