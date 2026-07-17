@@ -435,11 +435,19 @@ function InstalarAtualizacaoUcrtWindows7 {
 }
 
 function ValidarRuntimeCrystal {
+    $Crpe32 = Join-Path $DestinoCrystal "crpe32.dll"
+    $ApiSetUcrt = Join-Path $PastaSistemaX86 "api-ms-win-crt-runtime-l1-1-0.dll"
+    if (!(Test-Path $ApiSetUcrt)) {
+        $ApiSetUcrt = Join-Path $PastaSistemaX86 "downlevel\api-ms-win-crt-runtime-l1-1-0.dll"
+    }
+
     $ArquivosObrigatorios = @(
-        (Join-Path $DestinoCrystal "crpe32.dll"),
+        $Crpe32,
         (Join-Path $PastaSistemaX86 "ucrtbase.dll"),
+        $ApiSetUcrt,
         (Join-Path $PastaSistemaX86 "vcruntime140.dll"),
-        (Join-Path $PastaSistemaX86 "msvcp140.dll")
+        (Join-Path $PastaSistemaX86 "msvcp140.dll"),
+        (Join-Path $PastaSistemaX86 "mfc140u.dll")
     )
 
     foreach ($ArquivoObrigatorio in $ArquivosObrigatorios) {
@@ -449,7 +457,13 @@ function ValidarRuntimeCrystal {
         }
     }
 
-    LogMsg "Crystal Runtime 13.0.39 e dependencias nativas encontrados."
+    $VersaoCrpe = (Get-Item -LiteralPath $Crpe32).VersionInfo.FileVersion
+    if (!$VersaoCrpe.StartsWith("13.0.39.")) {
+        LogMsg "ERRO: Versao inesperada do crpe32.dll: $VersaoCrpe. Esperada: 13.0.39.x"
+        return $false
+    }
+
+    LogMsg "Crystal Runtime $VersaoCrpe e dependencias nativas encontrados."
     return $true
 }
 
