@@ -85,6 +85,49 @@ function InstalarExe {
     return $false
 }
 
+function Test-DotNet48Instalado {
+    $ChavesDotNet = @(
+        "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\NET Framework Setup\NDP\v4\Full"
+    )
+
+    foreach ($ChaveDotNet in $ChavesDotNet) {
+        try {
+            $Release = (Get-ItemProperty -Path $ChaveDotNet -Name "Release" -ErrorAction Stop).Release
+            if ($null -ne $Release -and [int]$Release -ge 528040) {
+                return $true
+            }
+        }
+        catch {
+        }
+    }
+
+    return $false
+}
+
+function GarantirDotNet48 {
+    if (Test-DotNet48Instalado) {
+        LogMsg ".NET Framework 4.8 ja esta instalado. Reinstalacao ignorada."
+        return $true
+    }
+
+    $Resultado = InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline"
+
+    if (Test-DotNet48Instalado) {
+        LogMsg ".NET Framework 4.8 confirmado no registro."
+        return $true
+    }
+
+    if (!$Resultado) {
+        LogMsg "ERRO: Instalador do .NET 4.8 falhou e a versao 4.8 nao foi detectada."
+    }
+    else {
+        LogMsg "ERRO: .NET 4.8 ainda nao foi detectado. Reinicie o Windows e execute novamente."
+    }
+
+    return $false
+}
+
 function ObterProcessosTek {
     $ProcessosProtegidos = @(
         "TekFarmaInstaller",
@@ -877,7 +920,7 @@ if ($Modo -eq "1" -or $Modo -eq "3") {
 }
 
 if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
-    if (!(InstalarExe $Net48 "/q /norestart" ".NET Framework 4.8 Offline")) {
+    if (!(GarantirDotNet48)) {
         LogMsg "ERRO: Falha ao instalar o .NET Framework 4.8."
         exit 1
     }
