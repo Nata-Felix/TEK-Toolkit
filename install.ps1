@@ -16,6 +16,8 @@ $GuiExe = Join-Path $Destino "TekFarmaInstaller.exe"
 $DotNetInstaller = Join-Path $Destino "dotnet48.exe"
 $GuiCache = Join-Path $CacheDir "TekFarmaInstaller.exe"
 $DotNetCache = Join-Path $CacheDir "dotnet48.exe"
+$Sp1X86Cache = Join-Path $CacheDir "windows6.1-KB976932-X86.exe"
+$Sp1X64Cache = Join-Path $CacheDir "windows6.1-KB976932-X64.exe"
 
 function LimparHistoricoPowerShell {
     try {
@@ -83,6 +85,15 @@ function Test-DotNet48 {
     }
 
     return ([int]$release -ge 528040)
+}
+
+function Test-Windows7SemSp1 {
+    $Versao = [Environment]::OSVersion.Version
+    return ($Versao.Major -eq 6 -and $Versao.Minor -eq 1 -and $Versao.Build -lt 7601)
+}
+
+function Test-Sistema64Bits {
+    return ($env:PROCESSOR_ARCHITEW6432 -eq "AMD64" -or $env:PROCESSOR_ARCHITECTURE -eq "AMD64")
 }
 
 function Test-ArquivoDownloadValido {
@@ -328,6 +339,59 @@ foreach ($ParcialAntigo in @([System.IO.Directory]::GetFiles($CacheDir, "*.parti
 }
 
 Write-Host "Cache de downloads: $CacheDir"
+
+if (Test-Windows7SemSp1) {
+    $Sp1Nome = "windows6.1-KB976932-X86.exe"
+    $Sp1Cache = $Sp1X86Cache
+
+    if (Test-Sistema64Bits) {
+        $Sp1Nome = "windows6.1-KB976932-X64.exe"
+        $Sp1Cache = $Sp1X64Cache
+    }
+
+    $Sp1Local = Join-Path $Destino $Sp1Nome
+    Set-ConsoleVisible -Visible $true
+    Write-Host ""
+    Write-Host "Windows 7 sem Service Pack 1 detectado."
+    Write-Host "Baixando somente o pacote correto para esta arquitetura: $Sp1Nome"
+
+    BaixarArquivo `
+        -Url "$BaseUrl/$Sp1Nome" `
+        -DestinoArquivo $Sp1Local `
+        -Nome $Sp1Nome `
+        -CacheArquivo $Sp1Cache `
+        -MaxAgeMinutos 43200
+
+    try {
+        Write-Host "Instalando Windows 7 Service Pack 1. Esta etapa pode demorar bastante..."
+        $Sp1Processo = Start-Process -FilePath $Sp1Local -Verb RunAs -ArgumentList "/quiet /norestart" -Wait -PassThru -ErrorAction Stop
+        Write-Host "Service Pack 1 finalizado. ExitCode: $($Sp1Processo.ExitCode)"
+    }
+    catch {
+        Write-Host "ERRO: Nao foi possivel iniciar a instalacao do Windows 7 Service Pack 1."
+        Write-Host $_.Exception.Message
+        Start-Sleep -Seconds 8
+        [Environment]::Exit(1)
+    }
+
+    if ($Sp1Processo.ExitCode -ne 0 -and $Sp1Processo.ExitCode -ne 3010 -and $Sp1Processo.ExitCode -ne 1641) {
+        Write-Host "ERRO: A instalacao do Service Pack 1 falhou. ExitCode: $($Sp1Processo.ExitCode)"
+        Start-Sleep -Seconds 10
+        [Environment]::Exit(1)
+    }
+
+    $MensagemSp1 = "Windows 7 Service Pack 1 instalado. Reinicie o computador e execute o instalador TekFarma novamente para continuar."
+    Write-Host ""
+    Write-Host $MensagemSp1
+    try {
+        (New-Object -ComObject WScript.Shell).Popup($MensagemSp1, 0, "Instalador TekFarma / Crystal", 64) | Out-Null
+    }
+    catch {
+        Start-Sleep -Seconds 15
+    }
+    LimparHistoricoPowerShell
+    [Environment]::Exit(0)
+}
 
 if (!(Test-DotNet48)) {
     Write-Host ""
