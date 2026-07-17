@@ -128,6 +128,18 @@ function GarantirDotNet48 {
     return $false
 }
 
+function RepararVisualCppWin7AposCrystal {
+    LogMsg "====================================="
+    LogMsg "Reaplicando Visual C++ x86 para Windows 7 apos o Crystal..."
+
+    if (InstalarExe $VCx86Win7 "/repair /quiet /norestart" "Reparo do Visual C++ x86 para Windows 7") {
+        return $true
+    }
+
+    LogMsg "AVISO: O modo reparo falhou. Tentando instalar novamente."
+    return (InstalarExe $VCx86Win7 "/install /quiet /norestart" "Reinstalacao do Visual C++ x86 para Windows 7")
+}
+
 function ObterProcessosTek {
     $ProcessosProtegidos = @(
         "TekFarmaInstaller",
@@ -962,6 +974,13 @@ if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {
     }
     else {
         AplicarFixCrystal
+    }
+
+    if ($UsarCompatibilidadeWin7) {
+        if (!(RepararVisualCppWin7AposCrystal)) {
+            LogMsg "ERRO: Nao foi possivel reaplicar o Visual C++ x86 depois do Crystal."
+            exit 1
+        }
     }
 
     if (!(ValidarRuntimeCrystal)) {

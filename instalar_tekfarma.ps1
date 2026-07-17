@@ -436,6 +436,17 @@ function GarantirDotNet48 {
     return $false
 }
 
+function RepararVisualCppWin7AposCrystal {
+    LogMsg "Reaplicando Visual C++ x86 para Windows 7 apos o Crystal..."
+
+    if (InstalarExe $VCx86Win7 "/repair /quiet /norestart" "Reparo do Visual C++ x86 para Windows 7") {
+        return $true
+    }
+
+    LogMsg "AVISO: O modo reparo falhou. Tentando instalar novamente."
+    return (InstalarExe $VCx86Win7 "/install /quiet /norestart" "Reinstalacao do Visual C++ x86 para Windows 7")
+}
+
 function InstalarAtualizacaoUcrtWindows7 {
     if (!$EhWindows7) {
         return $true
@@ -1086,6 +1097,15 @@ function InstalarDependenciasFull {
 
     ExecutarPasso "Aplicar fix Crystal" {
         AplicarFixCrystal | Out-Null
+    }
+
+    if ($CompatibilidadeWin7 -eq "true") {
+        ExecutarPasso "Reaplicar Visual C++ apos o Crystal" {
+            if (!(RepararVisualCppWin7AposCrystal)) {
+                LogMsg "ERRO: Nao foi possivel reaplicar o Visual C++ x86 depois do Crystal."
+                exit 1
+            }
+        }
     }
 
     ExecutarPasso "Validar Crystal Runtime" {
