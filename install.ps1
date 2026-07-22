@@ -6,7 +6,7 @@ $Version = "v1.0"
 $Repo = "Nata-Felix/TEK-Toolkit"
 
 $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
-$RawUrl = "https://raw.githubusercontent.com/$Repo/refs/heads/main"
+$RawUrl = "https://raw.githubusercontent.com/$Repo/refs/heads/agent/crystal-cache-fix"
 
 $RunId = "{0}_{1}" -f (Get-Date -Format "yyyyMMddHHmmss"), $PID
 $TempUsuario = [System.IO.Path]::GetTempPath()
@@ -427,12 +427,12 @@ if (!(Test-DotNet48)) {
 }
 
 BaixarArquivo `
-    -Url "$BaseUrl/TekFarmaInstaller-1.0.8.exe" `
+    -Url "$BaseUrl/TekFarmaInstaller-1.0.9-cachefix.exe" `
     -DestinoArquivo $GuiExe `
     -Nome "TekFarmaInstaller.exe" `
     -CacheArquivo $GuiCache `
     -MaxAgeMinutos 15 `
-    -VersaoMinima "1.0.8.0"
+    -VersaoMinima "1.0.9.0"
 
 Write-Host ""
 Write-Host "Abrindo interface grafica..."

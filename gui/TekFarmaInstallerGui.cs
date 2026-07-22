@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -13,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.8.0")]
-[assembly: AssemblyFileVersion("1.0.8.0")]
+[assembly: AssemblyVersion("1.0.9.0")]
+[assembly: AssemblyFileVersion("1.0.9.0")]
 
 namespace TekFarmaInstaller
 {
@@ -35,11 +36,13 @@ namespace TekFarmaInstaller
         private const string Version = "v1.0";
         private const string Repo = "Nata-Felix/TEK-Toolkit";
         private const string BaseUrl = "https://github.com/" + Repo + "/releases/download/" + Version;
-        private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/refs/heads/main";
+        private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/refs/heads/agent/crystal-cache-fix";
         private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
         private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
         private const string UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip";
         private const string UrlTekSync = "https://files.tekfarma.com.br/versao/TekSync%201.10.0.zip";
+        private const long CrystalRuntimeExpectedLength = 115961856L;
+        private const string CrystalRuntimeExpectedSha256 = "2EF92BC86D1E459E28433DCA6164712FF4CABB70030C295F0107E4EA9D24B52C";
 
         private readonly Color blue = Color.FromArgb(0, 92, 190);
         private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
@@ -797,6 +800,19 @@ namespace TekFarmaInstaller
                     return false;
                 }
 
+                if (String.Equals(item.FileName, "CRRuntime_32bit_13_0_39.msi", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (file.Length != CrystalRuntimeExpectedLength)
+                    {
+                        return false;
+                    }
+
+                    if (!String.Equals(CalculateSha256(path), CrystalRuntimeExpectedSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+
                 string extension = Path.GetExtension(item.FileName).ToLowerInvariant();
                 byte[] header = new byte[8];
                 int read;
@@ -850,6 +866,15 @@ namespace TekFarmaInstaller
             }
         }
 
+        private string CalculateSha256(string path)
+        {
+            using (SHA256 sha = new SHA256Managed())
+            using (FileStream stream = File.OpenRead(path))
+            {
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+            }
+        }
+
         private string FindReusableDownload(DownloadItem item, string cacheDir, TimeSpan maxAge)
         {
             if (maxAge <= TimeSpan.Zero)
@@ -858,9 +883,22 @@ namespace TekFarmaInstaller
             }
 
             string cachePath = Path.Combine(cacheDir, item.FileName);
-            if (IsDownloadFileValid(cachePath, item, maxAge))
+            if (File.Exists(cachePath))
             {
-                return cachePath;
+                if (IsDownloadFileValid(cachePath, item, maxAge))
+                {
+                    return cachePath;
+                }
+
+                AppendLog("[CACHE] Arquivo invalido ou incompleto removido: " + item.FileName);
+                try
+                {
+                    File.Delete(cachePath);
+                }
+                catch
+                {
+                    AppendLog("[AVISO] Nao foi possivel remover imediatamente o cache invalido: " + cachePath);
+                }
             }
 
             string bestCandidate = null;
