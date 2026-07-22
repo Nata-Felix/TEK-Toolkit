@@ -79,6 +79,11 @@ function InstalarExe {
 
     LogMsg "$Nome finalizado. ExitCode: $($Processo.ExitCode)"
 
+    if ($Processo.ExitCode -eq 1638) {
+        LogMsg "$Nome ja possui uma versao instalada. Continuando sem erro."
+        return $true
+    }
+
     if ($Processo.ExitCode -eq 0 -or $Processo.ExitCode -eq 3010) {
         return $true
     }
