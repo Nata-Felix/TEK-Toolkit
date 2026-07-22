@@ -808,43 +808,108 @@ function ObterNovoAutenticador {
 function Test-SyncIniServidor {
     param([string]$CaminhoSyncIni)
 
-    $Conteudo = [System.IO.File]::ReadAllText($CaminhoSyncIni, [System.Text.Encoding]::Default)
-    $Padrao = "(?im)^[\t ]*Endereco[\t ]*=[\t ]*C:\\TekSoftware\\TekFarma\\TEKSYNC[.]FDB[\t ]*(?:\r\n|\n|\r)[\t ]*Autenticador[\t ]*=[\t ]*[^\r\n]*"
-    return ([System.Text.RegularExpressions.Regex]::Matches($Conteudo, $Padrao).Count -eq 1)
+    $Conteudo = (LerArquivoTextoPreservandoEncoding $CaminhoSyncIni).Texto
+    $PadraoEndereco = "(?im)^[\t ]*Endereco[\t ]*=[\t ]*C:\\TekSoftware\\TekFarma\\TEKSYNC[.]FDB[\t ]*(?=\r\n|\n|\r|$)"
+    $PadraoAutenticador = "(?im)^[\t ]*Autenticador[\t ]*="
+    $Enderecos = [System.Text.RegularExpressions.Regex]::Matches($Conteudo, $PadraoEndereco)
+    $Autenticadores = [System.Text.RegularExpressions.Regex]::Matches($Conteudo, $PadraoAutenticador)
+
+    if ($Enderecos.Count -ne 1 -or $Autenticadores.Count -gt 1) {
+        return $false
+    }
+
+    if ($Autenticadores.Count -eq 0) {
+        return $true
+    }
+
+    $InicioEndereco = $Enderecos[0].Index
+    $FimSecao = $Conteudo.Length
+    $ProximaSecao = [System.Text.RegularExpressions.Regex]::Match($Conteudo.Substring($Enderecos[0].Index + $Enderecos[0].Length), "(?m)^[\t ]*\[")
+
+    if ($ProximaSecao.Success) {
+        $FimSecao = $Enderecos[0].Index + $Enderecos[0].Length + $ProximaSecao.Index
+    }
+
+    return ($Autenticadores[0].Index -gt $InicioEndereco -and $Autenticadores[0].Index -lt $FimSecao)
 }
 
-function AtualizarAutenticadorSyncIni {
+function LerArquivoTextoPreservandoEncoding {
+    param([string]$Caminho)
+
+    [byte[]]$Bytes = [System.IO.File]::ReadAllBytes($Caminho)
+    [byte[]]$Preambulo = @()
+    $Offset = 0
+    $Encoding = $null
+
+    if ($Bytes.Length -ge 4 -and $Bytes[0] -eq 0xFF -and $Bytes[1] -eq 0xFE -and $Bytes[2] -eq 0x00 -and $Bytes[3] -eq 0x00) {
+        $Encoding = New-Object System.Text.UTF32Encoding($false, $false, $true)
+        [byte[]]$Preambulo = @(0xFF, 0xFE, 0x00, 0x00)
+        $Offset = 4
+    }
+    elseif ($Bytes.Length -ge 4 -and $Bytes[0] -eq 0x00 -and $Bytes[1] -eq 0x00 -and $Bytes[2] -eq 0xFE -and $Bytes[3] -eq 0xFF) {
+        $Encoding = New-Object System.Text.UTF32Encoding($true, $false, $true)
+        [byte[]]$Preambulo = @(0x00, 0x00, 0xFE, 0xFF)
+        $Offset = 4
+    }
+    elseif ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) {
+        $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
+        [byte[]]$Preambulo = @(0xEF, 0xBB, 0xBF)
+        $Offset = 3
+    }
+    elseif ($Bytes.Length -ge 2 -and $Bytes[0] -eq 0xFF -and $Bytes[1] -eq 0xFE) {
+        $Encoding = New-Object System.Text.UnicodeEncoding($false, $false, $true)
+        [byte[]]$Preambulo = @(0xFF, 0xFE)
+        $Offset = 2
+    }
+    elseif ($Bytes.Length -ge 2 -and $Bytes[0] -eq 0xFE -and $Bytes[1] -eq 0xFF) {
+        $Encoding = New-Object System.Text.UnicodeEncoding($true, $false, $true)
+        [byte[]]$Preambulo = @(0xFE, 0xFF)
+        $Offset = 2
+    }
+    else {
+        try {
+            $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
+            [void]$Encoding.GetString($Bytes)
+        }
+        catch {
+            $Encoding = [System.Text.Encoding]::Default
+        }
+    }
+
+    $Texto = $Encoding.GetString($Bytes, $Offset, $Bytes.Length - $Offset)
+    return New-Object PSObject -Property @{
+        Texto = $Texto
+        Encoding = $Encoding
+        Preambulo = $Preambulo
+    }
+}
+
+function GravarArquivoTextoAtomico {
     param(
-        [string]$CaminhoSyncIni,
-        [string]$NovoAutenticador
+        [string]$Caminho,
+        [string]$Conteudo,
+        [object]$DadosEncoding
     )
 
-    $Reader = New-Object System.IO.StreamReader($CaminhoSyncIni, [System.Text.Encoding]::Default, $true)
-    try {
-        $ConteudoOriginal = $Reader.ReadToEnd()
-        $Encoding = $Reader.CurrentEncoding
-    }
-    finally {
-        $Reader.Dispose()
-    }
+    [byte[]]$BytesConteudo = $DadosEncoding.Encoding.GetBytes($Conteudo)
+    [byte[]]$Preambulo = $DadosEncoding.Preambulo
+    [byte[]]$BytesFinais = New-Object byte[] ($Preambulo.Length + $BytesConteudo.Length)
 
-    $Padrao = "(?im)^[\t ]*Endereco[\t ]*=[\t ]*C:\\TekSoftware\\TekFarma\\TEKSYNC[.]FDB[\t ]*(?:\r\n|\n|\r)[\t ]*Autenticador[\t ]*=[\t ]*(?<valor>[^\r\n]*)"
-    $Correspondencias = [System.Text.RegularExpressions.Regex]::Matches($ConteudoOriginal, $Padrao)
-
-    if ($Correspondencias.Count -ne 1) {
-        throw "O sync.ini deve possuir um unico par Endereco/Autenticador do servidor, em linhas consecutivas."
+    if ($Preambulo.Length -gt 0) {
+        [System.Array]::Copy($Preambulo, 0, $BytesFinais, 0, $Preambulo.Length)
     }
 
-    $GrupoValor = $Correspondencias[0].Groups["valor"]
-    $NovoConteudo = $ConteudoOriginal.Substring(0, $GrupoValor.Index) + $NovoAutenticador + $ConteudoOriginal.Substring($GrupoValor.Index + $GrupoValor.Length)
-    $PastaSyncIni = Split-Path -Parent $CaminhoSyncIni
-    $NomeSyncIni = Split-Path -Leaf $CaminhoSyncIni
-    $ArquivoTemporario = Join-Path $PastaSyncIni ("." + $NomeSyncIni + "." + $PID + ".tmp")
-    $BackupTroca = Join-Path $PastaSyncIni ("." + $NomeSyncIni + "." + $PID + ".bak")
+    [System.Array]::Copy($BytesConteudo, 0, $BytesFinais, $Preambulo.Length, $BytesConteudo.Length)
+
+    $Pasta = Split-Path -Parent $Caminho
+    $Nome = Split-Path -Leaf $Caminho
+    $Identificador = $PID.ToString() + "." + [Guid]::NewGuid().ToString("N")
+    $ArquivoTemporario = Join-Path $Pasta ("." + $Nome + "." + $Identificador + ".tmp")
+    $BackupTroca = Join-Path $Pasta ("." + $Nome + "." + $Identificador + ".bak")
 
     try {
-        [System.IO.File]::WriteAllText($ArquivoTemporario, $NovoConteudo, $Encoding)
-        [System.IO.File]::Replace($ArquivoTemporario, $CaminhoSyncIni, $BackupTroca)
+        [System.IO.File]::WriteAllBytes($ArquivoTemporario, $BytesFinais)
+        [System.IO.File]::Replace($ArquivoTemporario, $Caminho, $BackupTroca)
     }
     finally {
         if (Test-Path -LiteralPath $ArquivoTemporario) {
@@ -854,6 +919,89 @@ function AtualizarAutenticadorSyncIni {
             Remove-Item -LiteralPath $BackupTroca -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+function CriarBackupSyncIni {
+    param([string]$CaminhoSyncIni)
+
+    $Pasta = Split-Path -Parent $CaminhoSyncIni
+    $Backup = Join-Path $Pasta "bckp_sync.ini"
+
+    if (Test-Path -LiteralPath $Backup) {
+        $Backup = Join-Path $Pasta ("bckp_sync_" + (Get-Date -Format "yyyyMMdd_HHmmss_fff") + "_" + $PID + ".ini")
+    }
+
+    Copy-Item -LiteralPath $CaminhoSyncIni -Destination $Backup -Force -ErrorAction Stop
+
+    if ((ObterSha256Arquivo $CaminhoSyncIni) -ne (ObterSha256Arquivo $Backup)) {
+        throw "A copia de seguranca do sync.ini falhou na verificacao."
+    }
+
+    return $Backup
+}
+
+function AtualizarAutenticadorSyncIni {
+    param(
+        [string]$CaminhoSyncIni,
+        [string]$NovoAutenticador
+    )
+
+    $DadosArquivo = LerArquivoTextoPreservandoEncoding $CaminhoSyncIni
+    $ConteudoOriginal = $DadosArquivo.Texto
+    $PadraoEndereco = "(?im)^[\t ]*Endereco[\t ]*=[\t ]*C:\\TekSoftware\\TekFarma\\TEKSYNC[.]FDB[\t ]*(?=\r\n|\n|\r|$)"
+    $PadraoAutenticador = "(?im)^(?<prefixo>[\t ]*Autenticador[\t ]*=[\t ]*)(?<valor>[^\r\n]*)"
+    $Enderecos = [System.Text.RegularExpressions.Regex]::Matches($ConteudoOriginal, $PadraoEndereco)
+    $Autenticadores = [System.Text.RegularExpressions.Regex]::Matches($ConteudoOriginal, $PadraoAutenticador)
+
+    if ($Enderecos.Count -ne 1) {
+        throw "O sync.ini deve possuir um unico Endereco apontando para C:\TekSoftware\TekFarma\TEKSYNC.FDB."
+    }
+
+    if ($Autenticadores.Count -gt 1) {
+        throw "O sync.ini possui mais de uma chave Autenticador. A edicao foi cancelada."
+    }
+
+    $NovoConteudo = ""
+    $Acao = ""
+
+    if ($Autenticadores.Count -eq 1) {
+        $InicioEndereco = $Enderecos[0].Index
+        $FimSecao = $ConteudoOriginal.Length
+        $ProximaSecao = [System.Text.RegularExpressions.Regex]::Match($ConteudoOriginal.Substring($Enderecos[0].Index + $Enderecos[0].Length), "(?m)^[\t ]*\[")
+
+        if ($ProximaSecao.Success) {
+            $FimSecao = $Enderecos[0].Index + $Enderecos[0].Length + $ProximaSecao.Index
+        }
+
+        if ($Autenticadores[0].Index -le $InicioEndereco -or $Autenticadores[0].Index -ge $FimSecao) {
+            throw "A chave Autenticador existente nao esta abaixo do Endereco na mesma secao. A edicao foi cancelada."
+        }
+
+        $GrupoValor = $Autenticadores[0].Groups["valor"]
+        $NovoConteudo = $ConteudoOriginal.Substring(0, $GrupoValor.Index) + $NovoAutenticador + $ConteudoOriginal.Substring($GrupoValor.Index + $GrupoValor.Length)
+        $Acao = "substituida"
+    }
+    else {
+        $FimEndereco = $Enderecos[0].Index + $Enderecos[0].Length
+        $QuebraLinha = [Environment]::NewLine
+        $AposEndereco = $ConteudoOriginal.Substring($FimEndereco)
+
+        if ($AposEndereco.StartsWith("`r`n")) {
+            $QuebraLinha = "`r`n"
+        }
+        elseif ($AposEndereco.StartsWith("`n")) {
+            $QuebraLinha = "`n"
+        }
+        elseif ($AposEndereco.StartsWith("`r")) {
+            $QuebraLinha = "`r"
+        }
+
+        $NovoConteudo = $ConteudoOriginal.Substring(0, $FimEndereco) + $QuebraLinha + "Autenticador=" + $NovoAutenticador + $ConteudoOriginal.Substring($FimEndereco)
+        $Acao = "adicionada"
+    }
+
+    GravarArquivoTextoAtomico -Caminho $CaminhoSyncIni -Conteudo $NovoConteudo -DadosEncoding $DadosArquivo
+    return $Acao
 }
 
 function AtualizarTekSync {
@@ -886,7 +1034,7 @@ function AtualizarTekSync {
     }
 
     if (!(Test-SyncIniServidor $SyncIni)) {
-        LogMsg "ERRO: O sync.ini nao possui Endereco local e uma unica chave Autenticador abaixo dele."
+        LogMsg "ERRO: O sync.ini nao possui um Endereco local valido ou possui chaves Autenticador duplicadas/fora da secao do servidor."
         LogMsg "Esta atualizacao deve ser executada somente no servidor."
         return $false
     }
@@ -958,6 +1106,8 @@ function AtualizarTekSync {
         New-Item -ItemType Directory -Path $BackupTekSync -Force | Out-Null
         $BackupCriado = $true
         Copy-Item -LiteralPath $SyncIni -Destination (Join-Path $BackupTekSync "sync.ini") -Force -ErrorAction Stop
+        $BackupSyncIni = CriarBackupSyncIni $SyncIni
+        LogMsg "Backup do sync.ini criado antes da edicao: $BackupSyncIni"
 
         foreach ($ArquivoPacote in @(Get-ChildItem -Path $PastaPacote -Recurse | Where-Object { !$_.PSIsContainer -and $_.Name -ine "autenticador_sync.txt" })) {
             $Relativo = $ArquivoPacote.FullName.Substring($PastaPacotePrefixo.Length)
@@ -986,13 +1136,13 @@ function AtualizarTekSync {
             }
         }
 
-        AtualizarAutenticadorSyncIni -CaminhoSyncIni $SyncIni -NovoAutenticador $NovoAutenticador
+        $AcaoAutenticador = AtualizarAutenticadorSyncIni -CaminhoSyncIni $SyncIni -NovoAutenticador $NovoAutenticador
 
         if ((ObterSha256Arquivo $TekSyncExe) -ne $HashExeEsperado) {
             throw "A validacao final do TekSync.exe 1.10.0 falhou."
         }
 
-        LogMsg "Arquivos do TekSync atualizados e chave Autenticador substituida."
+        LogMsg "Arquivos do TekSync atualizados e chave Autenticador $AcaoAutenticador."
         LogMsg "O valor do autenticador foi protegido e nao foi exibido no log."
         LogMsg "Backup criado em: $BackupTekSync"
 
