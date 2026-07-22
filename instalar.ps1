@@ -19,6 +19,7 @@ $UcrtWin7x86 = Join-Path $Base "Windows6.1-KB2999226-x86.msu"
 $UcrtWin7x64 = Join-Path $Base "Windows6.1-KB2999226-x64.msu"
 $CrystalMsi = Join-Path $Base "CRRuntime_32bit_13_0_39.msi"
 $FixZip = Join-Path $Base "crdb_adoplus.zip"
+$TekSyncZip = Join-Path $Base "TekSync 1.10.0.zip"
 
 $RaizTekSoftware = "C:\TekSoftware"
 $DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
@@ -750,6 +751,316 @@ function AtualizarVersaoTekFarma {
     LogMsg "Atualizacao da versao aplicada com sucesso."
 }
 
+function ObterSha256Arquivo {
+    param([string]$Caminho)
+
+    $Stream = [System.IO.File]::OpenRead($Caminho)
+    $Sha256 = [System.Security.Cryptography.SHA256]::Create()
+
+    try {
+        return ([System.BitConverter]::ToString($Sha256.ComputeHash($Stream))).Replace("-", "")
+    }
+    finally {
+        $Sha256.Dispose()
+        $Stream.Dispose()
+    }
+}
+
+function Test-TekFarma1096 {
+    $TekAplicacao = Join-Path $DestinoSistema "TekAplicacao.exe"
+
+    if (!(Test-Path -LiteralPath $TekAplicacao -PathType Leaf)) {
+        LogMsg "ERRO: TekAplicacao.exe nao encontrado em $DestinoSistema."
+        return $false
+    }
+
+    $VersaoArquivo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($TekAplicacao).FileVersion
+
+    if ($VersaoArquivo -match "^85([.]|$)") {
+        LogMsg "TekFarma 1.09.6 confirmado (build do executavel: $VersaoArquivo)."
+        return $true
+    }
+
+    LogMsg "ERRO: O TekFarma instalado nao corresponde a versao 1.09.6. Build encontrado: $VersaoArquivo"
+    LogMsg "Atualize primeiro pela opcao 'Somente Versao' e depois execute 'Atualizar TekSync'."
+    return $false
+}
+
+function ObterNovoAutenticador {
+    param([string]$ArquivoAutenticador)
+
+    $Valor = ""
+
+    foreach ($Linha in [System.IO.File]::ReadAllLines($ArquivoAutenticador)) {
+        if ($Linha -match "^\s*Autenticador\s*=(.*)$") {
+            $Valor = $Matches[1].Trim()
+            break
+        }
+    }
+
+    if (Test-TextoVazio $Valor) {
+        throw "O arquivo autenticador_sync.txt nao possui uma chave Autenticador valida."
+    }
+
+    return $Valor
+}
+
+function Test-SyncIniServidor {
+    param([string]$CaminhoSyncIni)
+
+    $Conteudo = [System.IO.File]::ReadAllText($CaminhoSyncIni, [System.Text.Encoding]::Default)
+    $Padrao = "(?im)^[\t ]*Endereco[\t ]*=[\t ]*C:\\TekSoftware\\TekFarma\\TEKSYNC[.]FDB[\t ]*(?:\r\n|\n|\r)[\t ]*Autenticador[\t ]*=[\t ]*[^\r\n]*"
+    return ([System.Text.RegularExpressions.Regex]::Matches($Conteudo, $Padrao).Count -eq 1)
+}
+
+function AtualizarAutenticadorSyncIni {
+    param(
+        [string]$CaminhoSyncIni,
+        [string]$NovoAutenticador
+    )
+
+    $Reader = New-Object System.IO.StreamReader($CaminhoSyncIni, [System.Text.Encoding]::Default, $true)
+    try {
+        $ConteudoOriginal = $Reader.ReadToEnd()
+        $Encoding = $Reader.CurrentEncoding
+    }
+    finally {
+        $Reader.Dispose()
+    }
+
+    $Padrao = "(?im)^[\t ]*Endereco[\t ]*=[\t ]*C:\\TekSoftware\\TekFarma\\TEKSYNC[.]FDB[\t ]*(?:\r\n|\n|\r)[\t ]*Autenticador[\t ]*=[\t ]*(?<valor>[^\r\n]*)"
+    $Correspondencias = [System.Text.RegularExpressions.Regex]::Matches($ConteudoOriginal, $Padrao)
+
+    if ($Correspondencias.Count -ne 1) {
+        throw "O sync.ini deve possuir um unico par Endereco/Autenticador do servidor, em linhas consecutivas."
+    }
+
+    $GrupoValor = $Correspondencias[0].Groups["valor"]
+    $NovoConteudo = $ConteudoOriginal.Substring(0, $GrupoValor.Index) + $NovoAutenticador + $ConteudoOriginal.Substring($GrupoValor.Index + $GrupoValor.Length)
+    $PastaSyncIni = Split-Path -Parent $CaminhoSyncIni
+    $NomeSyncIni = Split-Path -Leaf $CaminhoSyncIni
+    $ArquivoTemporario = Join-Path $PastaSyncIni ("." + $NomeSyncIni + "." + $PID + ".tmp")
+    $BackupTroca = Join-Path $PastaSyncIni ("." + $NomeSyncIni + "." + $PID + ".bak")
+
+    try {
+        [System.IO.File]::WriteAllText($ArquivoTemporario, $NovoConteudo, $Encoding)
+        [System.IO.File]::Replace($ArquivoTemporario, $CaminhoSyncIni, $BackupTroca)
+    }
+    finally {
+        if (Test-Path -LiteralPath $ArquivoTemporario) {
+            Remove-Item -LiteralPath $ArquivoTemporario -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $BackupTroca) {
+            Remove-Item -LiteralPath $BackupTroca -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function AtualizarTekSync {
+    $HashZipEsperado = "BDD253CD129108CEC1813DD1AA3C13EF3AD92F26D04813B494E51ECC971ABC9A"
+    $HashExeEsperado = "D433188CCF48D6BC5739BBACD6D96643DA06F7A8CB8FE3C7B83C4797400BC160"
+    $HashAutenticadorEsperado = "13C8A44A7232FAEC8CA08EFB8E2242A47EDF519D792CA20ACE681804F1757701"
+    $TekSyncExe = Join-Path $DestinoSistema "TekSync.exe"
+    $SyncIni = Join-Path $DestinoSistema "sync.ini"
+    $TempTekSync = Join-Path $Base "TekSync_Extraido"
+    $BackupTekSync = Join-Path $DestinoSistema ("Backup_TekSync_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
+    $ArquivosNovos = @()
+    $BackupCriado = $false
+
+    LogMsg "====================================="
+    LogMsg "ATUALIZACAO TEKSYNC 1.10.0"
+    LogMsg "Destino: $DestinoSistema"
+
+    if (!(Test-TekFarma1096)) {
+        return $false
+    }
+
+    if (!(Test-Path -LiteralPath $TekSyncExe -PathType Leaf)) {
+        LogMsg "ERRO: TekSync.exe nao encontrado. Execute esta opcao somente no servidor."
+        return $false
+    }
+
+    if (!(Test-Path -LiteralPath $SyncIni -PathType Leaf)) {
+        LogMsg "ERRO: sync.ini nao encontrado. Execute esta opcao somente no servidor."
+        return $false
+    }
+
+    if (!(Test-SyncIniServidor $SyncIni)) {
+        LogMsg "ERRO: O sync.ini nao possui Endereco local e uma unica chave Autenticador abaixo dele."
+        LogMsg "Esta atualizacao deve ser executada somente no servidor."
+        return $false
+    }
+
+    if (!(Test-Path -LiteralPath $TekSyncZip -PathType Leaf)) {
+        LogMsg "ERRO: Pacote TekSync nao encontrado: $TekSyncZip"
+        return $false
+    }
+
+    $HashZip = ObterSha256Arquivo $TekSyncZip
+    if ($HashZip -ne $HashZipEsperado) {
+        LogMsg "ERRO: O pacote TekSync 1.10.0 falhou na verificacao SHA-256."
+        return $false
+    }
+
+    LogMsg "Pacote TekSync 1.10.0 validado."
+
+    foreach ($ProcessoTekSync in @(Get-Process -Name "TekSync" -ErrorAction SilentlyContinue)) {
+        LogMsg "Fechando processo TekSync.exe (PID $($ProcessoTekSync.Id))..."
+        Stop-Process -Id $ProcessoTekSync.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    Start-Sleep -Seconds 2
+    if (Get-Process -Name "TekSync" -ErrorAction SilentlyContinue) {
+        LogMsg "ERRO: Nao foi possivel fechar o TekSync.exe."
+        return $false
+    }
+
+    if (Test-Path $TempTekSync) {
+        Remove-Item -LiteralPath $TempTekSync -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Path $TempTekSync -Force | Out-Null
+
+    try {
+        $CodigoExtracao = ExtrairArquivoVersaoCompat -Pacote $TekSyncZip -Destino $TempTekSync
+        if ($CodigoExtracao -ne 0) {
+            throw "Nao foi possivel extrair o pacote TekSync 1.10.0."
+        }
+
+        $LimiteExtracao = (Get-Date).AddMinutes(3)
+        $ExtracaoValidada = $false
+
+        do {
+            $ExeExtraido = Get-ChildItem -Path $TempTekSync -Filter "TekSync.exe" -Recurse | Select-Object -First 1
+            $AuthExtraido = Get-ChildItem -Path $TempTekSync -Filter "autenticador_sync.txt" -Recurse | Select-Object -First 1
+
+            if ($null -ne $ExeExtraido -and $null -ne $AuthExtraido) {
+                try {
+                    $ExtracaoValidada = ((ObterSha256Arquivo $ExeExtraido.FullName) -eq $HashExeEsperado -and (ObterSha256Arquivo $AuthExtraido.FullName) -eq $HashAutenticadorEsperado)
+                }
+                catch {
+                    $ExtracaoValidada = $false
+                }
+            }
+
+            if (!$ExtracaoValidada) {
+                Start-Sleep -Milliseconds 500
+            }
+        } while (!$ExtracaoValidada -and (Get-Date) -lt $LimiteExtracao)
+
+        if (!$ExtracaoValidada) {
+            throw "A extracao do TekSync 1.10.0 nao foi concluida ou os arquivos nao passaram na verificacao."
+        }
+
+        $NovoAutenticador = ObterNovoAutenticador $AuthExtraido.FullName
+        $PastaPacote = $ExeExtraido.Directory.FullName
+        $PastaPacotePrefixo = $PastaPacote.TrimEnd("\") + "\"
+
+        New-Item -ItemType Directory -Path $BackupTekSync -Force | Out-Null
+        $BackupCriado = $true
+        Copy-Item -LiteralPath $SyncIni -Destination (Join-Path $BackupTekSync "sync.ini") -Force -ErrorAction Stop
+
+        foreach ($ArquivoPacote in @(Get-ChildItem -Path $PastaPacote -Recurse | Where-Object { !$_.PSIsContainer -and $_.Name -ine "autenticador_sync.txt" })) {
+            $Relativo = $ArquivoPacote.FullName.Substring($PastaPacotePrefixo.Length)
+            $ArquivoDestino = Join-Path $DestinoSistema $Relativo
+            $PastaDestinoArquivo = Split-Path -Parent $ArquivoDestino
+
+            if (!(Test-Path $PastaDestinoArquivo)) {
+                New-Item -ItemType Directory -Path $PastaDestinoArquivo -Force | Out-Null
+            }
+
+            if (Test-Path -LiteralPath $ArquivoDestino -PathType Leaf) {
+                $ArquivoBackup = Join-Path $BackupTekSync $Relativo
+                $PastaBackupArquivo = Split-Path -Parent $ArquivoBackup
+                if (!(Test-Path $PastaBackupArquivo)) {
+                    New-Item -ItemType Directory -Path $PastaBackupArquivo -Force | Out-Null
+                }
+                Copy-Item -LiteralPath $ArquivoDestino -Destination $ArquivoBackup -Force -ErrorAction Stop
+            }
+            else {
+                $ArquivosNovos += $ArquivoDestino
+            }
+
+            Copy-Item -LiteralPath $ArquivoPacote.FullName -Destination $ArquivoDestino -Force -ErrorAction Stop
+            if ((ObterSha256Arquivo $ArquivoPacote.FullName) -ne (ObterSha256Arquivo $ArquivoDestino)) {
+                throw "Falha ao validar o arquivo atualizado: $Relativo"
+            }
+        }
+
+        AtualizarAutenticadorSyncIni -CaminhoSyncIni $SyncIni -NovoAutenticador $NovoAutenticador
+
+        if ((ObterSha256Arquivo $TekSyncExe) -ne $HashExeEsperado) {
+            throw "A validacao final do TekSync.exe 1.10.0 falhou."
+        }
+
+        LogMsg "Arquivos do TekSync atualizados e chave Autenticador substituida."
+        LogMsg "O valor do autenticador foi protegido e nao foi exibido no log."
+        LogMsg "Backup criado em: $BackupTekSync"
+
+        $ProcessoNovo = Start-Process -FilePath $TekSyncExe -WorkingDirectory $DestinoSistema -PassThru
+        $Finalizou = $ProcessoNovo.WaitForExit(8000)
+
+        if ($Finalizou -and $ProcessoNovo.ExitCode -ne 0) {
+            throw "TekSync.exe encerrou com ExitCode $($ProcessoNovo.ExitCode)."
+        }
+
+        if ($Finalizou) {
+            LogMsg "TekSync.exe executado e finalizado sem erro imediato."
+        }
+        else {
+            LogMsg "TekSync.exe iniciado com sucesso (PID $($ProcessoNovo.Id))."
+        }
+
+        LogMsg "Confirme na tela do TekSync se a sincronizacao foi concluida sem erros."
+        return $true
+    }
+    catch {
+        LogMsg "ERRO na atualizacao do TekSync: $($_.Exception.Message)"
+
+        if ($BackupCriado) {
+            LogMsg "Restaurando arquivos anteriores do backup..."
+            try {
+                foreach ($ArquivoBackup in @(Get-ChildItem -Path $BackupTekSync -Recurse | Where-Object { !$_.PSIsContainer })) {
+                    $PrefixoBackup = $BackupTekSync.TrimEnd("\") + "\"
+                    $RelativoBackup = $ArquivoBackup.FullName.Substring($PrefixoBackup.Length)
+                    $DestinoRestauracao = Join-Path $DestinoSistema $RelativoBackup
+                    $PastaRestauracao = Split-Path -Parent $DestinoRestauracao
+                    if (!(Test-Path $PastaRestauracao)) {
+                        New-Item -ItemType Directory -Path $PastaRestauracao -Force -ErrorAction Stop | Out-Null
+                    }
+                    Copy-Item -LiteralPath $ArquivoBackup.FullName -Destination $DestinoRestauracao -Force -ErrorAction Stop
+                }
+
+                foreach ($ArquivoNovo in $ArquivosNovos) {
+                    if (Test-Path -LiteralPath $ArquivoNovo -PathType Leaf) {
+                        Remove-Item -LiteralPath $ArquivoNovo -Force -ErrorAction Stop
+                    }
+                }
+                LogMsg "Restauracao concluida."
+            }
+            catch {
+                LogMsg "ERRO: A restauracao automatica ficou incompleta: $($_.Exception.Message)"
+            }
+        }
+
+        try {
+            if ((Test-Path -LiteralPath $TekSyncExe -PathType Leaf) -and !(Get-Process -Name "TekSync" -ErrorAction SilentlyContinue)) {
+                Start-Process -FilePath $TekSyncExe -WorkingDirectory $DestinoSistema | Out-Null
+                LogMsg "TekSync anterior iniciado novamente apos a restauracao."
+            }
+        }
+        catch {
+            LogMsg "AVISO: Nao foi possivel reiniciar o TekSync anterior automaticamente."
+        }
+
+        return $false
+    }
+    finally {
+        if (Test-Path $TempTekSync) {
+            Remove-Item -LiteralPath $TempTekSync -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function RemoverCrystalAntigo {
     LogMsg "====================================="
     LogMsg "Procurando instalacoes antigas do Crystal Reports..."
@@ -922,13 +1233,19 @@ if (!(Test-Admin)) {
     exit 1
 }
 
-if (!(@("1", "2", "3", "4") -contains $Modo)) {
+if (!(@("1", "2", "3", "4", "5") -contains $Modo)) {
     LogMsg "ERRO: Modo invalido: $Modo"
     exit 1
 }
 
 if ($Modo -eq "1" -or $Modo -eq "3") {
     AtualizarVersaoTekFarma -TipoVersao $TipoVersao
+}
+
+if ($Modo -eq "5") {
+    if (!(AtualizarTekSync)) {
+        exit 1
+    }
 }
 
 if ($Modo -eq "2" -or $Modo -eq "3" -or $Modo -eq "4") {

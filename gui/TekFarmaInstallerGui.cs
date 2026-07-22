@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.7.0")]
-[assembly: AssemblyFileVersion("1.0.7.0")]
+[assembly: AssemblyVersion("1.0.8.0")]
+[assembly: AssemblyFileVersion("1.0.8.0")]
 
 namespace TekFarmaInstaller
 {
@@ -39,6 +39,7 @@ namespace TekFarmaInstaller
         private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
         private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
         private const string UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip";
+        private const string UrlTekSync = "https://files.tekfarma.com.br/versao/TekSync%201.10.0.zip";
 
         private readonly Color blue = Color.FromArgb(0, 92, 190);
         private readonly Color darkBlue = Color.FromArgb(0, 49, 112);
@@ -196,15 +197,17 @@ namespace TekFarmaInstaller
             };
             root.Controls.Add(optionsPanel);
 
-            AddOption(optionsPanel, InstallMode.Versao, 8, "Somente Versao", "", "box",
+            AddOption(optionsPanel, InstallMode.Versao, 4, "Somente Versao", "", "box",
                 "Atualiza apenas a versao do TekFarma em C:\\TekSoftware\\TekFarma.");
-            AddOption(optionsPanel, InstallMode.Crystal, 70, "Somente Crystal", "", "diamond",
+            AddOption(optionsPanel, InstallMode.TekSync, 54, "Atualizar TekSync", "1.10.0", "sync",
+                "Atualiza o TekSync 1.10.0 no servidor e altera somente a chave Autenticador do sync.ini.");
+            AddOption(optionsPanel, InstallMode.Crystal, 104, "Somente Crystal", "", "diamond",
                 ".NET 4.8, VS x86/x64, CRRuntime_39 e fix Crystal.");
-            AddOption(optionsPanel, InstallMode.CrystalWin7, 132, "Somente Crystal Win7", "", "diamond",
+            AddOption(optionsPanel, InstallMode.CrystalWin7, 154, "Somente Crystal Win7", "", "diamond",
                 ".NET 4.8, VS x86 para Windows 7, CRRuntime_39 e fix Crystal.");
-            AddOption(optionsPanel, InstallMode.Full, 194, "Completo", "versao + Crystal", "stack",
+            AddOption(optionsPanel, InstallMode.Full, 204, "Completo", "versao + Crystal", "stack",
                 "Atualiza a versao do TekFarma e instala .NET 4.8, VS x86/x64, CRRuntime_39 e fix Crystal.");
-            AddOption(optionsPanel, InstallMode.TekFarma, 256, "Novo Servidor/Terminal", "", "network",
+            AddOption(optionsPanel, InstallMode.TekFarma, 254, "Novo Servidor/Terminal", "", "network",
                 "Servidor: Firebird, pastas, banco, versao e dependencias. Terminal: dependencias, credencial, mapeamento e atalho.");
 
             BuildChoicePanel(root);
@@ -217,7 +220,7 @@ namespace TekFarmaInstaller
             row.Left = 8;
             row.Top = top;
             row.Width = 320;
-            row.Height = 54;
+            row.Height = 48;
             row.SelectedChanged += delegate { SelectMode(row.Mode); };
             parent.Controls.Add(row);
             optionRows.Add(row);
@@ -572,6 +575,16 @@ namespace TekFarmaInstaller
                 }
 
                 SetProgress(100);
+
+                if (plan.Mode == InstallMode.TekSync)
+                {
+                    currentStepLabel.Text = "TekSync iniciado";
+                    statusLabel.Text = "Confirme a sincronizacao no TekSync";
+                    AppendLog("[AVISO] Verifique na tela do TekSync se a sincronizacao terminou sem erros.");
+                    AppendLog("[INFO] A janela permanecera aberta para esta confirmacao.");
+                    return;
+                }
+
                 currentStepLabel.Text = "Instalacao finalizada";
                 statusLabel.Text = "Processo concluido";
                 AppendLog("[OK] Processo finalizado.");
@@ -653,6 +666,11 @@ namespace TekFarmaInstaller
             plan.PerfilTek = perfilTek;
             bool repairWithoutCrystal = mode == InstallMode.Crystal && repairWithoutCrystalCheckBox.Checked;
             bool windows7Compatibility = mode == InstallMode.CrystalWin7 || IsWindows7();
+
+            if (mode == InstallMode.TekSync)
+            {
+                plan.Downloads.Add(new DownloadItem(UrlTekSync, "TekSync 1.10.0.zip", "TekSync 1.10.0.zip"));
+            }
 
             if ((mode == InstallMode.Crystal && !repairWithoutCrystal) || mode == InstallMode.CrystalWin7 || mode == InstallMode.Full || mode == InstallMode.TekFarma)
             {
@@ -739,6 +757,7 @@ namespace TekFarmaInstaller
             if (mode == InstallMode.Crystal) return "2";
             if (mode == InstallMode.Full) return "3";
             if (mode == InstallMode.CrystalWin7) return "4";
+            if (mode == InstallMode.TekSync) return "5";
             return "1";
         }
 
@@ -1222,7 +1241,8 @@ namespace TekFarmaInstaller
         Crystal,
         CrystalWin7,
         Full,
-        TekFarma
+        TekFarma,
+        TekSync
     }
 
     internal sealed class WorkPlan
@@ -1269,7 +1289,7 @@ namespace TekFarmaInstaller
             DoubleBuffered = true;
 
             radio.Left = 10;
-            radio.Top = 17;
+            radio.Top = 12;
             radio.Width = 24;
             radio.Height = 24;
             radio.CheckedChanged += delegate
@@ -1283,7 +1303,7 @@ namespace TekFarmaInstaller
 
             titleLabel.Text = title;
             titleLabel.Left = 90;
-            titleLabel.Top = String.IsNullOrEmpty(subtitle) ? 16 : 9;
+            titleLabel.Top = String.IsNullOrEmpty(subtitle) ? 12 : 3;
             titleLabel.Width = 210;
             titleLabel.Height = 24;
             titleLabel.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
@@ -1293,7 +1313,7 @@ namespace TekFarmaInstaller
 
             subtitleLabel.Text = subtitle;
             subtitleLabel.Left = 90;
-            subtitleLabel.Top = 29;
+            subtitleLabel.Top = 24;
             subtitleLabel.Width = 210;
             subtitleLabel.Height = 22;
             subtitleLabel.Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
@@ -1339,7 +1359,7 @@ namespace TekFarmaInstaller
                 }
             }
 
-            DrawIcon(e.Graphics, new Rectangle(52, 12, 30, 30), iconKind);
+            DrawIcon(e.Graphics, new Rectangle(52, 9, 30, 30), iconKind);
         }
 
         private void DrawIcon(Graphics g, Rectangle r, string kind)
@@ -1348,7 +1368,16 @@ namespace TekFarmaInstaller
             using (Brush b = new SolidBrush(blue))
             using (Pen p = new Pen(blue, 3F))
             {
-                if (kind == "diamond")
+                if (kind == "sync")
+                {
+                    g.DrawArc(p, r.Left + 3, r.Top + 3, r.Width - 7, r.Height - 7, 35, 210);
+                    g.DrawArc(p, r.Left + 3, r.Top + 3, r.Width - 7, r.Height - 7, 215, 210);
+                    Point[] arrow1 = new Point[] { new Point(r.Right - 2, r.Top + 11), new Point(r.Right - 11, r.Top + 7), new Point(r.Right - 8, r.Top + 16) };
+                    Point[] arrow2 = new Point[] { new Point(r.Left + 2, r.Bottom - 11), new Point(r.Left + 11, r.Bottom - 7), new Point(r.Left + 8, r.Bottom - 16) };
+                    g.FillPolygon(b, arrow1);
+                    g.FillPolygon(b, arrow2);
+                }
+                else if (kind == "diamond")
                 {
                     Point[] pts = new Point[] {
                         new Point(r.Left + r.Width / 2, r.Top),
