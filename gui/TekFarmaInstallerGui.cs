@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.9.0")]
-[assembly: AssemblyFileVersion("1.0.9.0")]
+[assembly: AssemblyVersion("1.0.10.0")]
+[assembly: AssemblyFileVersion("1.0.10.0")]
 
 namespace TekFarmaInstaller
 {
@@ -911,7 +911,7 @@ namespace TekFarmaInstaller
             }
         }
 
-        private bool DownloadOrReuseFile(DownloadItem item, string destination, string cacheDir)
+        private bool DownloadOrReuseFile(DownloadItem item, string destination, string cacheDir, BackgroundWorker bg, int completedUnits, int totalUnits)
         {
             TimeSpan maxAge = GetDownloadCacheAge(item);
             string reusable = FindReusableDownload(item, cacheDir, maxAge);
@@ -932,10 +932,28 @@ namespace TekFarmaInstaller
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(partialPath));
 
-                using (WebClient client = new WebClient())
+                Exception lastError = null;
+                for (int attempt = 1; attempt <= 3; attempt++)
                 {
-                    client.DownloadFile(item.Url, partialPath);
+                    try
+                    {
+                        if (File.Exists(partialPath)) File.Delete(partialPath);
+                        AppendLog("[DOWNLOAD] " + item.Name + " - tentativa " + attempt + " de 3.");
+                        DownloadFileWithVisualProgress(item, partialPath, bg, completedUnits, totalUnits);
+                        lastError = null;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (cancelRequested) throw;
+                        lastError = ex;
+                        AppendLog("[AVISO] Tentativa " + attempt + " falhou: " + ex.Message);
+                        if (attempt < 3) Thread.Sleep(1500);
+                    }
                 }
+
+                if (lastError != null)
+                    throw new InvalidOperationException("Nao foi possivel baixar " + item.Name + " apos 3 tentativas. " + lastError.Message, lastError);
 
                 if (!IsDownloadFileValid(partialPath, item, TimeSpan.Zero))
                 {
@@ -977,6 +995,55 @@ namespace TekFarmaInstaller
                 {
                 }
             }
+        }
+
+        private void DownloadFileWithVisualProgress(DownloadItem item, string destination, BackgroundWorker bg, int completedUnits, int totalUnits)
+        {
+            Exception downloadError = null;
+            bool downloadCancelled = false;
+
+            using (ManualResetEvent finished = new ManualResetEvent(false))
+            using (LongTimeoutWebClient client = new LongTimeoutWebClient())
+            {
+                client.Headers.Add(HttpRequestHeader.UserAgent, "TEK-Toolkit/1.0");
+                client.DownloadProgressChanged += delegate(object sender, DownloadProgressChangedEventArgs e)
+                {
+                    int overall = CalcDownloadPercent(completedUnits, totalUnits, e.ProgressPercentage);
+                    string sizeText = FormatBytes(e.BytesReceived);
+                    if (e.TotalBytesToReceive > 0)
+                        sizeText += " de " + FormatBytes(e.TotalBytesToReceive);
+
+                    bg.ReportProgress(overall, "Baixando " + item.Name + ": " + e.ProgressPercentage + "% (" + sizeText + ")");
+                };
+                client.DownloadFileCompleted += delegate(object sender, AsyncCompletedEventArgs e)
+                {
+                    downloadError = e.Error;
+                    downloadCancelled = e.Cancelled;
+                    finished.Set();
+                };
+
+                bg.ReportProgress(CalcDownloadPercent(completedUnits, totalUnits, 0), "Baixando " + item.Name + ": 0%");
+                client.DownloadFileAsync(new Uri(item.Url), destination);
+
+                while (!finished.WaitOne(250))
+                {
+                    if (cancelRequested) client.CancelAsync();
+                }
+            }
+
+            if (downloadCancelled || cancelRequested)
+                throw new OperationCanceledException("Download cancelado pelo usuario.");
+            if (downloadError != null)
+                throw new InvalidOperationException(downloadError.Message, downloadError);
+        }
+
+        private int CalcDownloadPercent(int completedUnits, int totalUnits, int filePercent)
+        {
+            double completed = completedUnits + (Math.Max(0, Math.Min(100, filePercent)) / 100.0);
+            int value = (int)Math.Round((completed * 100.0) / Math.Max(1, totalUnits));
+            if (value < 0) value = 0;
+            if (value > 100) value = 100;
+            return value;
         }
 
         private void CleanupStaleCachePartials(string cacheDir)
@@ -1029,7 +1096,7 @@ namespace TekFarmaInstaller
                 AppendLog("[INFO] Verificando cache/download: " + item.Name);
                 AppendLog("[URL] " + item.Url);
 
-                bool reused = DownloadOrReuseFile(item, destination, cacheDir);
+                bool reused = DownloadOrReuseFile(item, destination, cacheDir, bg, done, totalUnits);
 
                 FileInfo fi = new FileInfo(destination);
                 AppendLog("[OK] " + item.Name + (reused ? " reutilizado" : " baixado") + " (" + FormatBytes(fi.Length) + ")");
@@ -1266,6 +1333,24 @@ namespace TekFarmaInstaller
             Url = url;
             FileName = fileName;
             Name = name;
+        }
+    }
+
+    internal sealed class LongTimeoutWebClient : WebClient
+    {
+        protected override WebRequest GetWebRequest(Uri address)
+        {
+            WebRequest request = base.GetWebRequest(address);
+            request.Timeout = 10 * 60 * 1000;
+
+            HttpWebRequest httpRequest = request as HttpWebRequest;
+            if (httpRequest != null)
+            {
+                httpRequest.ReadWriteTimeout = 10 * 60 * 1000;
+                httpRequest.AllowAutoRedirect = true;
+            }
+
+            return request;
         }
     }
 
