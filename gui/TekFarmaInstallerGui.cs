@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.12.0")]
-[assembly: AssemblyFileVersion("1.0.12.0")]
+[assembly: AssemblyVersion("1.0.13.0")]
+[assembly: AssemblyFileVersion("1.0.13.0")]
 
 namespace TekFarmaInstaller
 {
@@ -1044,7 +1044,7 @@ namespace TekFarmaInstaller
         {
             if (item != null && String.Equals(item.FileName, "TekSync 1.10.0.zip", StringComparison.OrdinalIgnoreCase))
             {
-                return "BDD253CD129108CEC1813DD1AA3C13EF3AD92F26D04813B494E51ECC971ABC9A";
+                return "D919EFD9264DFAE5D63E00602143DCF510CD849AFEE298F17893C94937725684";
             }
 
             return null;
