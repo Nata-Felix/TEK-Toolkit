@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -13,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.10.0")]
-[assembly: AssemblyFileVersion("1.0.10.0")]
+[assembly: AssemblyVersion("1.0.11.0")]
+[assembly: AssemblyFileVersion("1.0.11.0")]
 
 namespace TekFarmaInstaller
 {
@@ -916,6 +917,12 @@ namespace TekFarmaInstaller
             TimeSpan maxAge = GetDownloadCacheAge(item);
             string reusable = FindReusableDownload(item, cacheDir, maxAge);
 
+            if (!String.IsNullOrWhiteSpace(reusable) && !IsKnownPackageHashValid(reusable, item))
+            {
+                AppendLog("[CACHE] SHA-256 invalido; descartando cache de " + item.Name + ".");
+                reusable = null;
+            }
+
             if (!String.IsNullOrWhiteSpace(reusable))
             {
                 File.Copy(reusable, destination, true);
@@ -960,6 +967,14 @@ namespace TekFarmaInstaller
                     throw new InvalidDataException(item.Name + " foi baixado incompleto ou em formato invalido.");
                 }
 
+                if (!IsKnownPackageHashValid(partialPath, item))
+                {
+                    string recebido = CalculateSha256(partialPath);
+                    throw new InvalidDataException(
+                        item.Name + " falhou na verificacao SHA-256. Esperado: " +
+                        GetExpectedPackageHash(item) + "; recebido: " + recebido + ".");
+                }
+
                 if (cachePath != null)
                 {
                     if (File.Exists(cachePath))
@@ -994,6 +1009,41 @@ namespace TekFarmaInstaller
                 catch
                 {
                 }
+            }
+        }
+
+        private bool IsKnownPackageHashValid(string path, DownloadItem item)
+        {
+            string expected = GetExpectedPackageHash(item);
+            if (String.IsNullOrWhiteSpace(expected)) return true;
+            if (!File.Exists(path)) return false;
+
+            try
+            {
+                return String.Equals(CalculateSha256(path), expected, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string GetExpectedPackageHash(DownloadItem item)
+        {
+            if (item != null && String.Equals(item.FileName, "TekSync 1.10.0.zip", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BDD253CD129108CEC1813DD1AA3C13EF3AD92F26D04813B494E51ECC971ABC9A";
+            }
+
+            return null;
+        }
+
+        private string CalculateSha256(string path)
+        {
+            using (SHA256 sha = new SHA256Managed())
+            using (FileStream stream = File.OpenRead(path))
+            {
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
             }
         }
 
