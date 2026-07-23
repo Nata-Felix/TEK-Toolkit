@@ -1,7 +1,8 @@
 param(
     [string]$TipoVersao = "",
     [string]$PerfilTek = "",
-    [string]$CompatibilidadeWin7 = "false"
+    [string]$CompatibilidadeWin7 = "false",
+    [string]$VerificarAntesDeBaixar = "false"
 )
 
 $ErrorActionPreference = "Stop"
@@ -413,6 +414,33 @@ function Test-DotNet48Instalado {
     return $false
 }
 
+function Test-VisualCppInstalado {
+    param([bool]$X64)
+
+    $Caminhos = if ($X64) {
+        @("HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64")
+    }
+    else {
+        @(
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x86",
+            "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86"
+        )
+    }
+
+    foreach ($Caminho in $Caminhos) {
+        try {
+            $Instalado = (Get-ItemProperty -Path $Caminho -Name "Installed" -ErrorAction Stop).Installed
+            if ($null -ne $Instalado -and [int]$Instalado -eq 1) {
+                return $true
+            }
+        }
+        catch {
+        }
+    }
+
+    return $false
+}
+
 function GarantirDotNet48 {
     if (Test-DotNet48Instalado) {
         LogMsg ".NET Framework 4.8 ja esta instalado. Reinstalacao ignorada."
@@ -438,6 +466,11 @@ function GarantirDotNet48 {
 
 function RepararVisualCppWin7AposCrystal {
     LogMsg "Reaplicando Visual C++ x86 para Windows 7 apos o Crystal..."
+
+    if ($VerificarAntesDeBaixar -eq "true" -and (Test-VisualCppInstalado $false) -and !(Test-Path $VCx86Win7)) {
+        LogMsg "Visual C++ x86 para Windows 7 ja instalado e pacote nao foi baixado. Reparo ignorado."
+        return $true
+    }
 
     if (InstalarExe $VCx86Win7 "/repair /quiet /norestart" "Reparo do Visual C++ x86 para Windows 7") {
         return $true
@@ -1068,7 +1101,10 @@ function InstalarDependenciasFull {
         }
 
         ExecutarPasso "Visual C++ Redistributable x86 para Windows 7" {
-            if (!(InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7")) {
+            if ($VerificarAntesDeBaixar -eq "true" -and (Test-VisualCppInstalado $false)) {
+                LogMsg "Visual C++ x86 para Windows 7 ja instalado. Instalacao ignorada."
+            }
+            elseif (!(InstalarExe $VCx86Win7 "/install /quiet /norestart" "Visual C++ Redistributable x86 para Windows 7")) {
                 LogMsg "ERRO: Falha ao instalar o Visual C++ x86 para Windows 7."
                 exit 1
             }
@@ -1076,11 +1112,21 @@ function InstalarDependenciasFull {
     }
     else {
         ExecutarPasso "Visual C++ Redistributable x86" {
-            InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86" | Out-Null
+            if ($VerificarAntesDeBaixar -eq "true" -and (Test-VisualCppInstalado $false)) {
+                LogMsg "Visual C++ x86 ja instalado. Instalacao ignorada."
+            }
+            else {
+                InstalarExe $VCx86 "/install /quiet /norestart" "Visual C++ Redistributable x86" | Out-Null
+            }
         }
 
         ExecutarPasso "Visual C++ Redistributable x64" {
-            InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64" | Out-Null
+            if ($VerificarAntesDeBaixar -eq "true" -and (Test-VisualCppInstalado $true)) {
+                LogMsg "Visual C++ x64 ja instalado. Instalacao ignorada."
+            }
+            else {
+                InstalarExe $VCx64 "/install /quiet /norestart" "Visual C++ Redistributable x64" | Out-Null
+            }
         }
     }
 
@@ -1493,6 +1539,7 @@ LogMsg "====================================="
 LogMsg "PerfilTek recebido: $PerfilTek"
 LogMsg "TipoVersao recebido: $TipoVersao"
 LogMsg "Compatibilidade Windows 7: $CompatibilidadeWin7"
+LogMsg "Verificar antes de baixar: $VerificarAntesDeBaixar"
 LogMsg "Base: $Base"
 
 if (!(Test-Admin)) {

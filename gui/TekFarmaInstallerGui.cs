@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using Microsoft.Win32;
 using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -14,8 +15,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.11.0")]
-[assembly: AssemblyFileVersion("1.0.11.0")]
+[assembly: AssemblyVersion("1.0.12.0")]
+[assembly: AssemblyFileVersion("1.0.12.0")]
 
 namespace TekFarmaInstaller
 {
@@ -54,6 +55,7 @@ namespace TekFarmaInstaller
         private readonly RadioButton servidorRadio = new RadioButton();
         private readonly RadioButton terminalRadio = new RadioButton();
         private readonly CheckBox repairWithoutCrystalCheckBox = new CheckBox();
+        private readonly CheckBox verifyBeforeDownloadCheckBox = new CheckBox();
         private readonly ProgressBar progressBar = new ProgressBar();
         private readonly Label progressLabel = new Label();
         private readonly Label currentStepLabel = new Label();
@@ -266,12 +268,21 @@ namespace TekFarmaInstaller
 
             repairWithoutCrystalCheckBox.Text = "Reparo sem\nCrystal";
             repairWithoutCrystalCheckBox.Left = 232;
-            repairWithoutCrystalCheckBox.Top = 3;
+            repairWithoutCrystalCheckBox.Top = 0;
             repairWithoutCrystalCheckBox.Width = 124;
-            repairWithoutCrystalCheckBox.Height = 46;
+            repairWithoutCrystalCheckBox.Height = 27;
             repairWithoutCrystalCheckBox.Enabled = false;
             choicePanel.Controls.Add(repairWithoutCrystalCheckBox);
             optionToolTip.SetToolTip(repairWithoutCrystalCheckBox, "Instala .NET, Visual C++ e aplica o fix sem remover ou instalar o Crystal Runtime.");
+
+            verifyBeforeDownloadCheckBox.Text = "Verificar antes\nde baixar";
+            verifyBeforeDownloadCheckBox.Left = 232;
+            verifyBeforeDownloadCheckBox.Top = 27;
+            verifyBeforeDownloadCheckBox.Width = 124;
+            verifyBeforeDownloadCheckBox.Height = 27;
+            verifyBeforeDownloadCheckBox.Checked = false;
+            choicePanel.Controls.Add(verifyBeforeDownloadCheckBox);
+            optionToolTip.SetToolTip(verifyBeforeDownloadCheckBox, "Verifica .NET Framework 4.8 e Visual C++ instalados e baixa somente o que estiver faltando.");
 
             normalRadio.Text = "Versao normal";
             normalRadio.Left = 4;
@@ -665,6 +676,7 @@ namespace TekFarmaInstaller
             plan.Mode = mode;
             plan.TipoVersao = tipoVersao;
             plan.PerfilTek = perfilTek;
+            plan.VerificarAntesDeBaixar = verifyBeforeDownloadCheckBox.Checked;
             bool repairWithoutCrystal = mode == InstallMode.Crystal && repairWithoutCrystalCheckBox.Checked;
             bool windows7Compatibility = mode == InstallMode.CrystalWin7 || IsWindows7();
 
@@ -735,13 +747,13 @@ namespace TekFarmaInstaller
             {
                 plan.ScriptName = "instalar_tekfarma.ps1";
                 plan.Downloads.Add(new DownloadItem(RawUrl + "/instalar_tekfarma.ps1", "instalar_tekfarma.ps1", "instalar_tekfarma.ps1"));
-                plan.ScriptArguments = "-TipoVersao \"" + tipoVersao + "\" -PerfilTek \"" + perfilTek + "\" -CompatibilidadeWin7 \"" + (windows7Compatibility ? "true" : "false") + "\"";
+                plan.ScriptArguments = "-TipoVersao \"" + tipoVersao + "\" -PerfilTek \"" + perfilTek + "\" -CompatibilidadeWin7 \"" + (windows7Compatibility ? "true" : "false") + "\" -VerificarAntesDeBaixar \"" + (plan.VerificarAntesDeBaixar ? "true" : "false") + "\"";
             }
             else
             {
                 plan.ScriptName = "instalar.ps1";
                 plan.Downloads.Add(new DownloadItem(RawUrl + "/instalar.ps1", "instalar.ps1", "instalar.ps1"));
-                plan.ScriptArguments = "-Modo " + ModeToNumber(mode) + " -TipoVersao \"" + tipoVersao + "\" -ReparoSemCrystal \"" + (repairWithoutCrystal ? "true" : "false") + "\" -CompatibilidadeWin7 \"" + (windows7Compatibility ? "true" : "false") + "\"";
+                plan.ScriptArguments = "-Modo " + ModeToNumber(mode) + " -TipoVersao \"" + tipoVersao + "\" -ReparoSemCrystal \"" + (repairWithoutCrystal ? "true" : "false") + "\" -CompatibilidadeWin7 \"" + (windows7Compatibility ? "true" : "false") + "\" -VerificarAntesDeBaixar \"" + (plan.VerificarAntesDeBaixar ? "true" : "false") + "\"";
             }
 
             return plan;
@@ -1142,6 +1154,14 @@ namespace TekFarmaInstaller
                 DownloadItem item = plan.Downloads[i];
                 string destination = Path.Combine(tempDir, item.FileName);
 
+                if (plan.VerificarAntesDeBaixar && DeveIgnorarDownload(item))
+                {
+                    AppendLog("[VERIFICACAO] " + item.Name + " ja esta instalado; download ignorado.");
+                    done++;
+                    bg.ReportProgress(CalcPercent(done, totalUnits), "Ja instalado: " + item.Name);
+                    continue;
+                }
+
                 bg.ReportProgress(CalcPercent(done, totalUnits), "Verificando cache: " + item.Name + "...");
                 AppendLog("[INFO] Verificando cache/download: " + item.Name);
                 AppendLog("[URL] " + item.Url);
@@ -1228,6 +1248,103 @@ namespace TekFarmaInstaller
 
             done++;
             bg.ReportProgress(CalcPercent(done, totalUnits), "Instalacao concluida");
+        }
+
+        private bool DeveIgnorarDownload(DownloadItem item)
+        {
+            if (item == null) return false;
+
+            if (String.Equals(item.FileName, "dotnet48.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsDotNet48Installed();
+            }
+
+            if (String.Equals(item.FileName, "VC_redist.x86.exe", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(item.FileName, "VC_redist.x86.Win7.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsVisualCppInstalled(false);
+            }
+
+            if (String.Equals(item.FileName, "VC_redist.x64.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsVisualCppInstalled(true);
+            }
+
+            if (String.Equals(item.FileName, "Windows6.1-KB2999226-x86.msu", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(item.FileName, "Windows6.1-KB2999226-x64.msu", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsUniversalCrtInstalled();
+            }
+
+            return false;
+        }
+
+        private bool IsUniversalCrtInstalled()
+        {
+            Version version = Environment.OSVersion.Version;
+            if (version.Major != 6 || version.Minor != 1) return true;
+
+            string systemDirectory = Environment.Is64BitOperatingSystem
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
+            return File.Exists(Path.Combine(systemDirectory, "ucrtbase.dll"));
+        }
+
+        private bool IsDotNet48Installed()
+        {
+            string[] paths = new string[] {
+                @"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full",
+                @"SOFTWARE\WOW6432Node\Microsoft\NET Framework Setup\NDP\v4\Full"
+            };
+
+            for (int i = 0; i < paths.Length; i++)
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.LocalMachine.OpenSubKey(paths[i]))
+                    {
+                        object release = key == null ? null : key.GetValue("Release");
+                        if (release != null && Convert.ToInt32(release) >= 528040) return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsVisualCppInstalled(bool x64)
+        {
+            string architecture = x64 ? "x64" : "x86";
+            string[] paths = x64
+                ? new string[] { @"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" }
+                : new string[] {
+                    @"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x86",
+                    @"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86"
+                };
+
+            for (int i = 0; i < paths.Length; i++)
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.LocalMachine.OpenSubKey(paths[i]))
+                    {
+                        object installed = key == null ? null : key.GetValue("Installed");
+                        if (installed != null && Convert.ToInt32(installed) == 1)
+                        {
+                            AppendLog("[VERIFICACAO] Visual C++ " + architecture + " detectado no registro.");
+                            return true;
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
         }
 
         private int CalcPercent(int done, int total)
@@ -1369,6 +1486,7 @@ namespace TekFarmaInstaller
         public string PerfilTek;
         public string ScriptName;
         public string ScriptArguments;
+        public bool VerificarAntesDeBaixar;
         public readonly List<DownloadItem> Downloads = new List<DownloadItem>();
     }
 

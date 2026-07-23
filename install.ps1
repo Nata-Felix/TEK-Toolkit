@@ -427,12 +427,12 @@ if (!(Test-DotNet48)) {
 }
 
 BaixarArquivo `
-    -Url "$BaseUrl/TekFarmaInstaller-1.0.11.exe" `
+    -Url "$BaseUrl/TekFarmaInstaller-1.0.12.exe" `
     -DestinoArquivo $GuiExe `
     -Nome "TekFarmaInstaller.exe" `
     -CacheArquivo $GuiCache `
     -MaxAgeMinutos 15 `
-    -VersaoMinima "1.0.11.0"
+    -VersaoMinima "1.0.12.0"
 
 Write-Host ""
 Write-Host "Abrindo interface grafica..."
