@@ -711,10 +711,10 @@ function AtualizarVersaoTekFarma {
     }
 
     if ($TipoVersao -eq "normal") {
-        $Pacote = Join-Path $Base "TekFarma50.exe"
+        $Pacote = Join-Path $Base "TekFarma50v109.7.zip"
     }
     elseif ($TipoVersao -eq "i") {
-        $Pacote = Join-Path $Base "TekFarma50i.exe"
+        $Pacote = Join-Path $Base "TekFarma50v109.7i.zip"
     }
     else {
         LogMsg "ERRO: Tipo de versao invalido ou vazio: $TipoVersao"

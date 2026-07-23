@@ -10,8 +10,8 @@ $RawUrl = "https://raw.githubusercontent.com/$Repo/refs/heads/main"
 
 $Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystal"
 
-$UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe"
-$UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe"
+$UrlVersaoNormal = "$BaseUrl/TekFarma50v109.7.zip"
+$UrlVersaoI = "$BaseUrl/TekFarma50v109.7i.zip"
 $UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip"
 
 function LimparHistoricoPowerShell {
@@ -218,20 +218,20 @@ BaixarArquivo -Url $UrlArquivo -DestinoArquivo $DestinoArquivo -Nome $Arquivo
 }
 
 if ($TipoVersao -eq "normal" -and $Modo -ne "99") {
-BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50.exe" -Nome "TekFarma50.exe"
+BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50v109.7.zip" -Nome "TekFarma 1.09.7"
 }
 
 if ($TipoVersao -eq "i" -and $Modo -ne "99") {
-BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
+BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50v109.7i.zip" -Nome "TekFarma 1.09.7i"
 }
 
 if ($Modo -eq "99" -and $PerfilTek -eq "servidor") {
     if ($TipoVersao -eq "normal") {
-        BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50.exe" -Nome "TekFarma50.exe"
+        BaixarArquivo -Url $UrlVersaoNormal -DestinoArquivo "$Destino\TekFarma50v109.7.zip" -Nome "TekFarma 1.09.7"
     }
 
     if ($TipoVersao -eq "i") {
-        BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
+        BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50v109.7i.zip" -Nome "TekFarma 1.09.7i"
     }
 
     BaixarArquivo -Url $UrlBancoTekFarma -DestinoArquivo "$Destino\TEKFARMA(NOV-2020).zip" -Nome "TEKFARMA(NOV-2020).zip"

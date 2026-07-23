@@ -33,8 +33,8 @@ namespace TekSoftwareSuporte
         private const string DriversBaseUrl = "https://github.com/" + Repo + "/releases/download/" + DriversVersion;
         private const string DriversIndexUrl = DriversBaseUrl + "/drivers-impressoras.json";
         private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/refs/heads/main";
-        private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
-        private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
+        private const string UrlVersaoNormal = BaseUrl + "/TekFarma50v109.7.zip";
+        private const string UrlVersaoI = BaseUrl + "/TekFarma50v109.7i.zip";
         private const string RadminVpnUrl = "https://download.radmin-vpn.com/download/files/Radmin_VPN_2.0.4899.9.exe";
 
         private readonly Color blue = Color.FromArgb(0, 92, 190);
@@ -902,11 +902,11 @@ namespace TekSoftwareSuporte
 
                         if (String.Equals(selectedServerMigration.TipoVersao, "i", StringComparison.OrdinalIgnoreCase))
                         {
-                            plan.Downloads.Add(new DownloadItem(UrlVersaoI, "TekFarma50i.exe", "TekFarma50i.exe"));
+                            plan.Downloads.Add(new DownloadItem(UrlVersaoI, "TekFarma50v109.7i.zip", "TekFarma 1.09.7i"));
                         }
                         else
                         {
-                            plan.Downloads.Add(new DownloadItem(UrlVersaoNormal, "TekFarma50.exe", "TekFarma50.exe"));
+                            plan.Downloads.Add(new DownloadItem(UrlVersaoNormal, "TekFarma50v109.7.zip", "TekFarma 1.09.7"));
                         }
                     }
 

@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("TekFarmaInstaller")]
 [assembly: AssemblyProduct("TEK Toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
-[assembly: AssemblyVersion("1.0.8.0")]
-[assembly: AssemblyFileVersion("1.0.8.0")]
+[assembly: AssemblyVersion("1.0.9.0")]
+[assembly: AssemblyFileVersion("1.0.9.0")]
 
 namespace TekFarmaInstaller
 {
@@ -36,8 +36,8 @@ namespace TekFarmaInstaller
         private const string Repo = "Nata-Felix/TEK-Toolkit";
         private const string BaseUrl = "https://github.com/" + Repo + "/releases/download/" + Version;
         private const string RawUrl = "https://raw.githubusercontent.com/" + Repo + "/refs/heads/main";
-        private const string UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe";
-        private const string UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe";
+        private const string UrlVersaoNormal = BaseUrl + "/TekFarma50v109.7.zip";
+        private const string UrlVersaoI = BaseUrl + "/TekFarma50v109.7i.zip";
         private const string UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip";
         private const string UrlTekSync = "https://files.tekfarma.com.br/versao/TekSync%201.10.0.zip";
 
@@ -717,11 +717,11 @@ namespace TekFarmaInstaller
             {
                 if (tipoVersao == "normal")
                 {
-                    plan.Downloads.Add(new DownloadItem(UrlVersaoNormal, "TekFarma50.exe", "TekFarma50.exe"));
+                    plan.Downloads.Add(new DownloadItem(UrlVersaoNormal, "TekFarma50v109.7.zip", "TekFarma 1.09.7"));
                 }
                 else
                 {
-                    plan.Downloads.Add(new DownloadItem(UrlVersaoI, "TekFarma50i.exe", "TekFarma50i.exe"));
+                    plan.Downloads.Add(new DownloadItem(UrlVersaoI, "TekFarma50v109.7i.zip", "TekFarma 1.09.7i"));
                 }
             }
 
